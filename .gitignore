@@ -1,0 +1,32 @@
+# VPS Magic Backup - .gitignore
+
+# 运行时配置 (含敏感信息)
+config.env
+*.env
+!config.example.env
+
+# 备份数据
+backups/
+*.tar.gz
+*.tar.gz.enc
+*.sha256
+
+# 日志
+*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 用户项目参考文档 (非项目本身)
+部署无情下载机完整指南*.md
+README-pdfmaker.md
+
+# 编辑器
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+.deploy_resume_state
+commit_msg.txt
