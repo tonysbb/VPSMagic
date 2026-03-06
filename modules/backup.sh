@@ -21,6 +21,56 @@ run_backup() {
   log_info "备份根目录: ${BACKUP_ROOT}"
   echo
 
+  # ==================== 磁盘空间预检 ====================
+  log_step "磁盘空间检查..."
+  local avail_bytes
+  avail_bytes="$(get_disk_avail_bytes "${BACKUP_ROOT}")"
+  local avail_human
+  avail_human="$(human_size "${avail_bytes}")"
+  local total_bytes
+  total_bytes="$(get_disk_total_bytes "${BACKUP_ROOT}")"
+  local total_human
+  total_human="$(human_size "${total_bytes}")"
+
+  log_info "备份磁盘: 可用 ${avail_human} / 共 ${total_human}"
+
+  # 基于历史数据估算本次备份大小
+  local est_backup_size=524288000  # 默认预估 500MB
+  local archive_dir_pre="${BACKUP_ROOT}/archives"
+  if [[ -d "${archive_dir_pre}" ]]; then
+    local latest_archive
+    latest_archive="$(ls -t "${archive_dir_pre}"/*.tar.gz* 2>/dev/null | head -1)"
+    if [[ -n "${latest_archive}" ]]; then
+      est_backup_size="$(get_file_size "${latest_archive}")"
+      # 增加 20% 缓冲
+      est_backup_size=$(( est_backup_size * 120 / 100 ))
+      log_info "参考上次备份大小: $(human_size "${est_backup_size}")"
+    fi
+  fi
+
+  local disk_check_result=0
+  check_disk_space "${BACKUP_ROOT}" "${est_backup_size}" || disk_check_result=$?
+
+  if (( disk_check_result == 2 )); then
+    # 严重不足：尝试先轮转释放空间
+    log_warn "尝试清理旧备份释放空间..."
+    local archive_dir_early="${BACKUP_ROOT}/archives"
+    if [[ -d "${archive_dir_early}" ]]; then
+      local oldest
+      oldest="$(find "${archive_dir_early}" -maxdepth 1 -name "*.tar.gz*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | awk '{print $2}')"
+      if [[ -n "${oldest}" ]]; then
+        rm -f "${oldest}" "${oldest}.sha256" 2>/dev/null
+        log_info "已删除最旧备份: $(basename "${oldest}")"
+      fi
+    fi
+    # 重新检查
+    check_disk_space "${BACKUP_ROOT}" "${est_backup_size}" || {
+      log_error "清理后空间仍然不足，中止备份。"
+      return 1
+    }
+  fi
+  echo
+
   # 创建暂存目录
   local staging_dir="${BACKUP_ROOT}/staging/${backup_name}"
   safe_mkdir "${staging_dir}"
@@ -230,20 +280,32 @@ run_backup() {
   _rotate_local_backups() {
     local keep="${BACKUP_KEEP_LOCAL:-3}"
     local count
-    count="$(find "${archive_dir}" -maxdepth 1 -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz*" -type f | wc -l)"
-    count="$(( count / 2 ))"  # 每份有 .tar.gz 和 .sha256
+    count="$(find "${archive_dir}" -maxdepth 1 \( -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz" -o -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz.enc" \) -type f 2>/dev/null | wc -l | tr -d ' ')"
+
+    log_info "本地备份: 当前 ${count} 份，保留策略 ${keep} 份"
+
+    # 显示空间使用情况
+    local post_avail
+    post_avail="$(get_disk_avail_bytes "${archive_dir}")"
+    local disk_used_by_backups
+    disk_used_by_backups="$(du -sh "${archive_dir}" 2>/dev/null | awk '{print $1}')"
+    log_info "  备份目录占用: ${disk_used_by_backups:-unknown}，磁盘剩余: $(human_size "${post_avail}")"
 
     if (( count > keep )); then
       local to_remove=$(( count - keep ))
-      log_info "本地备份轮转: 保留最新 ${keep} 份, 删除 ${to_remove} 份旧备份"
+      log_info "  本地轮转: 删除 ${to_remove} 份旧备份"
       if ! log_dry_run "删除 ${to_remove} 份旧备份"; then
         # 按修改时间排序，删除最旧的
-        find "${archive_dir}" -maxdepth 1 -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz" -type f -printf '%T@ %p\n' 2>/dev/null | \
+        find "${archive_dir}" -maxdepth 1 \( -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz" -o -name "${BACKUP_PREFIX:-vpsmagic}_*.tar.gz.enc" \) -type f -printf '%T@ %p\n' 2>/dev/null | \
           sort -n | head -n "${to_remove}" | awk '{print $2}' | \
           while read -r old_file; do
             rm -f "${old_file}" "${old_file}.sha256" "${old_file}.enc" "${old_file}.enc.sha256"
             log_debug "  已删除: $(basename "${old_file}")"
           done
+        local freed_avail
+        freed_avail="$(get_disk_avail_bytes "${archive_dir}")"
+        local freed=$(( freed_avail - post_avail ))
+        (( freed > 0 )) && log_info "  释放空间: $(human_size "${freed}")"
       fi
     fi
   }

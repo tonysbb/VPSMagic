@@ -253,7 +253,28 @@ run_init() {
   local backup_root="/opt/vpsmagic/backups"
   read_with_default backup_root "本地备份临时目录" "${backup_root}"
 
-  local keep_local="3"
+  # 智能推荐本地保留份数
+  local disk_avail
+  disk_avail="$(get_disk_avail_bytes "${backup_root}" 2>/dev/null || echo "0")"
+  local disk_total
+  disk_total="$(get_disk_total_bytes "${backup_root}" 2>/dev/null || echo "0")"
+  local recommended_keep
+  recommended_keep="$(recommend_local_keep "${backup_root}" 2>/dev/null || echo "3")"
+
+  echo
+  echo -e "  ${_CLR_DIM}📊 磁盘空间分析:${_CLR_NC}"
+  if (( disk_total > 0 )); then
+    echo "     总容量: $(human_size "${disk_total}")"
+    echo "     可用:   $(human_size "${disk_avail}")"
+    echo "     💡 基于可用空间，推荐本地保留: ${recommended_keep} 份"
+    echo "     (留 20% 安全余量给系统，旧备份自动滚动删除)"
+  else
+    echo "     无法检测磁盘空间，使用默认值: 3 份"
+    recommended_keep="3"
+  fi
+  echo
+
+  local keep_local="${recommended_keep}"
   read_with_default keep_local "本地保留备份份数" "${keep_local}"
 
   local keep_remote="30"

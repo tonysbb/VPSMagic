@@ -275,3 +275,116 @@ in_array() {
   done
   return 1
 }
+
+# ---------- 磁盘空间工具 ----------
+
+# 获取指定路径所在磁盘的可用字节数
+get_disk_avail_bytes() {
+  local path="${1:-.}"
+  # df -P 保证 POSIX 格式输出；取 Available 列 (第4列)
+  # 单位是 1K-blocks，所以乘 1024 转字节
+  local avail_kb
+  avail_kb="$(df -P "${path}" 2>/dev/null | awk 'NR==2 {print $4}')"
+  if [[ -n "${avail_kb}" && "${avail_kb}" =~ ^[0-9]+$ ]]; then
+    echo $(( avail_kb * 1024 ))
+  else
+    echo "0"
+  fi
+}
+
+# 获取指定路径所在磁盘的总容量字节数
+get_disk_total_bytes() {
+  local path="${1:-.}"
+  local total_kb
+  total_kb="$(df -P "${path}" 2>/dev/null | awk 'NR==2 {print $2}')"
+  if [[ -n "${total_kb}" && "${total_kb}" =~ ^[0-9]+$ ]]; then
+    echo $(( total_kb * 1024 ))
+  else
+    echo "0"
+  fi
+}
+
+# 备份前磁盘空间检查
+# 参数: $1=备份目录路径  $2=预估需要的字节数 (可选，默认 500MB)
+# 返回: 0=空间充足  1=空间不足但可继续  2=空间严重不足
+check_disk_space() {
+  local backup_dir="${1:-${BACKUP_ROOT}}"
+  local est_bytes="${2:-524288000}"  # 默认预留 500MB
+  local avail
+  avail="$(get_disk_avail_bytes "${backup_dir}")"
+
+  if (( avail == 0 )); then
+    log_warn "无法检测磁盘空间"
+    return 0
+  fi
+
+  local avail_human
+  avail_human="$(human_size "${avail}")"
+
+  # 严重不足：可用空间 < 100MB
+  if (( avail < 104857600 )); then
+    log_error "磁盘空间严重不足! 可用: ${avail_human}"
+    log_error "建议: 清理磁盘或减少 BACKUP_KEEP_LOCAL 值"
+    return 2
+  fi
+
+  # 空间不足：可用空间 < 预估需要
+  if (( avail < est_bytes )); then
+    log_warn "磁盘空间可能不足。可用: ${avail_human}，建议至少: $(human_size "${est_bytes}")"
+    return 1
+  fi
+
+  log_debug "磁盘空间检查通过: 可用 ${avail_human}"
+  return 0
+}
+
+# 智能推荐本地备份保留份数
+# 逻辑:
+#   1. 查看已有备份的平均大小，估算单份备份大小
+#   2. 如果没有历史数据，使用默认预估值 (200MB)
+#   3. 基于可用磁盘空间，计算能保留多少份 (保留 20% 安全余量)
+#   4. 限制在 [1, 30] 范围内，给出推荐值
+# 参数: $1=备份存储目录
+# 输出: 推荐的保留份数
+recommend_local_keep() {
+  local backup_dir="${1:-${BACKUP_ROOT:-/opt/vpsmagic/backups}}"
+  local archive_dir="${backup_dir}/archives"
+  local avail
+  avail="$(get_disk_avail_bytes "${backup_dir}")"
+
+  # 估算单份备份大小
+  local est_size=209715200  # 默认 200MB
+
+  if [[ -d "${archive_dir}" ]]; then
+    local total_size=0
+    local file_count=0
+    while IFS= read -r f; do
+      local fsize
+      fsize="$(get_file_size "${f}")"
+      total_size=$(( total_size + fsize ))
+      ((file_count++))
+    done < <(find "${archive_dir}" -maxdepth 1 \( -name "*.tar.gz" -o -name "*.tar.gz.enc" \) -type f 2>/dev/null)
+
+    if (( file_count > 0 )); then
+      est_size=$(( total_size / file_count ))
+      # 最小估算 10MB (避免除零或异常小值)
+      (( est_size < 10485760 )) && est_size=10485760
+    fi
+  fi
+
+  if (( avail == 0 || est_size == 0 )); then
+    echo "3"
+    return
+  fi
+
+  # 可用空间的 80% 用于备份（留 20% 安全余量给系统）
+  local usable=$(( avail * 80 / 100 ))
+  local recommended=$(( usable / est_size ))
+
+  # 限制范围: 最少 1 份，最多 30 份
+  (( recommended < 1 )) && recommended=1
+  (( recommended > 30 )) && recommended=30
+
+  echo "${recommended}"
+}
+
