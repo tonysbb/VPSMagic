@@ -31,3 +31,6 @@ README-pdfmaker.md
 .idea/
 .deploy_resume_state
 commit_msg.txt
+
+# 本地复制的 skill（仅本地调用，避免误推送）
+skills/
