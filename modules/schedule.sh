@@ -60,7 +60,12 @@ _schedule_install() {
     read_with_default cron_expr "请输入 cron 表达式" "${cron_expr}"
   fi
 
-  local cron_cmd="${cron_expr} /usr/bin/env bash ${vpsmagic_path} backup --config ${config_path} >> /var/log/vpsmagic_cron.log 2>&1 ${CRON_MARKER}"
+  local escaped_vpsmagic_path
+  local escaped_config_path
+  printf -v escaped_vpsmagic_path '%q' "${vpsmagic_path}"
+  printf -v escaped_config_path '%q' "${config_path}"
+
+  local cron_cmd="${cron_expr} /usr/bin/env bash ${escaped_vpsmagic_path} backup --config ${escaped_config_path} >> /var/log/vpsmagic_cron.log 2>&1 ${CRON_MARKER}"
 
   if log_dry_run "安装 cron: ${cron_cmd}"; then return 0; fi
 

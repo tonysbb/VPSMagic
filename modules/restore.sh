@@ -6,6 +6,26 @@
 [[ -n "${_MODULE_RESTORE_LOADED:-}" ]] && return 0
 _MODULE_RESTORE_LOADED=1
 
+_read_env_value() {
+  local env_file="$1"
+  local key="$2"
+  [[ -f "${env_file}" ]] || return 1
+
+  awk -F= -v target="${key}" '
+    /^[[:space:]]*#/ { next }
+    {
+      key=$1
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (key == target) {
+        value=substr($0, index($0, "=") + 1)
+        sub(/\r$/, "", value)
+        print value
+        exit
+      }
+    }
+  ' "${env_file}" 2>/dev/null
+}
+
 run_restore() {
   # 本地文件恢复模式 (由 migrate 或 --local 触发)
   if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
@@ -382,6 +402,7 @@ _restore_docker_standalone() {
     return 0
   fi
 
+  local manual_count=0
   for container_dir in "${mod_dir}"/*/; do
     [[ -d "${container_dir}" ]] || continue
     local name
@@ -395,13 +416,12 @@ _restore_docker_standalone() {
 
     if log_dry_run "恢复独立容器: ${name}"; then continue; fi
 
-    # 读取元数据
-    # shellcheck disable=SC1091
-    source "${container_dir}/metadata.env" 2>/dev/null || continue
+    local image=""
+    image="$(_read_env_value "${container_dir}/metadata.env" "IMAGE")"
 
     # 拉取镜像
-    if [[ -n "${IMAGE:-}" ]]; then
-      docker pull "${IMAGE}" 2>/dev/null || log_warn "    镜像拉取失败: ${IMAGE}"
+    if [[ -n "${image}" ]]; then
+      docker pull "${image}" 2>/dev/null || log_warn "    镜像拉取失败: ${image}"
     fi
 
     # 还原卷数据
@@ -416,9 +436,14 @@ _restore_docker_standalone() {
 
     log_info "    注意: 独立容器需要根据 ${container_dir}/inspect.json 手动重建"
     log_info "    或参考 ${container_dir}/metadata.env 中的配置"
+    ((manual_count++))
   done
 
-  summary_add "ok" "恢复独立容器" "元数据已恢复"
+  if (( manual_count > 0 )); then
+    summary_add "warn" "恢复独立容器" "${manual_count} 个容器需手动重建"
+  else
+    summary_add "skip" "恢复独立容器" "未发现可恢复容器"
+  fi
 }
 
 _restore_systemd() {
@@ -507,11 +532,11 @@ _restore_systemd() {
 
     # 读取状态
     if [[ -f "${svc_dir}/status.env" ]]; then
-      # shellcheck disable=SC1091
-      source "${svc_dir}/status.env" 2>/dev/null
+      local enabled_state=""
+      enabled_state="$(_read_env_value "${svc_dir}/status.env" "ENABLED")"
       # 恢复启用状态
       systemctl daemon-reload 2>/dev/null || true
-      if [[ "${ENABLED:-}" == "enabled" ]]; then
+      if [[ "${enabled_state}" == "enabled" ]]; then
         systemctl enable "${svc_name}" 2>/dev/null || true
         systemctl start "${svc_name}" 2>/dev/null || {
           log_warn "    服务 ${svc_name} 启动失败"
@@ -735,9 +760,15 @@ _restore_user_home() {
       continue
     fi
 
-    # shellcheck disable=SC1091
-    source "${user_dir}/user_info.env" 2>/dev/null || continue
-    local home="${HOME:-}"
+    local home=""
+    home="$(_read_env_value "${user_dir}/user_info.env" "HOME")"
+    if [[ -z "${home}" ]]; then
+      if [[ "${username}" == "root" ]]; then
+        home="/root"
+      else
+        home="$(getent passwd "${username}" 2>/dev/null | cut -d: -f6)"
+      fi
+    fi
 
     if [[ -z "${home}" ]]; then continue; fi
 

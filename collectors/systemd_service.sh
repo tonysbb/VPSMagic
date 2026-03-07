@@ -95,7 +95,10 @@ collect_systemd_services() {
     local exec_start
     exec_start="$(systemctl show "${svc_name}" -p ExecStart --value 2>/dev/null || true)"
     local exec_path
-    exec_path="$(echo "${exec_start}" | grep -oP 'path=\K[^;[:space:]]+' || echo "${exec_start}" | awk '{print $1}')"
+    exec_path="$(echo "${exec_start}" | sed -n 's/.*path=\([^;[:space:]]*\).*/\1/p' | head -1)"
+    if [[ -z "${exec_path}" ]]; then
+      exec_path="$(echo "${exec_start}" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^\//) {print $i; exit}}')"
+    fi
 
     if [[ -n "${exec_path}" && "${exec_path}" == /* ]]; then
       local exec_dir
@@ -127,11 +130,10 @@ collect_systemd_services() {
         # ---- Python venv 探测 (如 downnow-bot.service 使用 .venv/bin/python) ----
         local venv_dir=""
         # 方法1: ExecStart 路径中包含 .venv 或 venv
-        if echo "${exec_start}" | grep -qE '/(\.venv|venv)/bin/'; then
-          venv_dir="$(echo "${exec_start}" | grep -oP '(\K[^;[:space:]]*/(\.venv|venv))' | head -1)"
-          if [[ -z "${venv_dir}" ]]; then
-            venv_dir="${work_dir}/.venv"
-          fi
+        if [[ "${exec_path}" == */.venv/bin/* ]]; then
+          venv_dir="${exec_path%%/.venv/bin/*}/.venv"
+        elif [[ "${exec_path}" == */venv/bin/* ]]; then
+          venv_dir="${exec_path%%/venv/bin/*}/venv"
         fi
         # 方法2: WorkingDirectory 下存在 .venv 或 venv
         if [[ -z "${venv_dir}" ]]; then

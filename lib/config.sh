@@ -63,6 +63,93 @@ MIGRATE_SSH_PORT="${MIGRATE_SSH_PORT:-22}"
 MIGRATE_SSH_KEY="${MIGRATE_SSH_KEY:-}"
 MIGRATE_BW_LIMIT="${MIGRATE_BW_LIMIT:-}"
 MIGRATE_TARGET="${MIGRATE_TARGET:-}"
+MIGRATE_SKIP_RESTORE="${MIGRATE_SKIP_RESTORE:-0}"
+MIGRATE_AUTO_CONFIRM="${MIGRATE_AUTO_CONFIRM:-0}"
+
+# ---------- 安全配置解析 ----------
+_is_allowed_config_key() {
+  local key="$1"
+  case "${key}" in
+    VPSMAGIC_HOME|BACKUP_ROOT|BACKUP_KEEP_LOCAL|BACKUP_KEEP_REMOTE|BACKUP_PREFIX|BACKUP_ENCRYPTION_KEY|\
+    RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|\
+    NOTIFY_ENABLED|TG_BOT_TOKEN|TG_CHAT_ID|\
+    ENABLE_DOCKER_COMPOSE|ENABLE_DOCKER_STANDALONE|ENABLE_SYSTEMD|ENABLE_REVERSE_PROXY|ENABLE_DATABASE|\
+    ENABLE_SSL_CERTS|ENABLE_CRONTAB|ENABLE_FIREWALL|ENABLE_USER_HOME|ENABLE_CUSTOM_PATHS|\
+    COMPOSE_PROJECTS|SYSTEMD_SERVICES|EXTRA_PATHS|BACKUP_USERS|\
+    DB_MYSQL_CONTAINERS|DB_MYSQL_HOST_USER|DB_MYSQL_HOST_PASS|DB_POSTGRES_CONTAINERS|DB_SQLITE_PATHS|\
+    LOG_FILE|SCHEDULE_CRON|\
+    MIGRATE_SSH_PORT|MIGRATE_SSH_KEY|MIGRATE_BW_LIMIT|MIGRATE_TARGET|MIGRATE_SKIP_RESTORE|MIGRATE_AUTO_CONFIRM)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+_trim_spaces() {
+  local s="${1:-}"
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
+  printf '%s' "${s}"
+}
+
+_load_config_file_safely() {
+  local file="$1"
+  local line_no=0
+  local line=""
+
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    ((line_no++))
+    line="${line%$'\r'}"
+
+    # 跳过空行和注释
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+    [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+
+    # 支持 export KEY=VALUE
+    if [[ "${line}" =~ ^[[:space:]]*export[[:space:]]+ ]]; then
+      line="$(echo "${line}" | sed -E 's/^[[:space:]]*export[[:space:]]+//')"
+    fi
+
+    if [[ "${line}" != *"="* ]]; then
+      log_warn "配置第 ${line_no} 行格式无效，已跳过。"
+      continue
+    fi
+
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    key="$(_trim_spaces "${key}")"
+    value="$(_trim_spaces "${value}")"
+
+    if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      log_warn "配置第 ${line_no} 行键名非法 (${key})，已跳过。"
+      continue
+    fi
+
+    if ! _is_allowed_config_key "${key}"; then
+      log_warn "配置项 ${key} 不在允许列表中，已跳过。"
+      continue
+    fi
+
+    # 去除未加引号值的行尾注释: VALUE # comment
+    if [[ ! "${value}" =~ ^\".*\"$ && ! "${value}" =~ ^\'.*\'$ ]]; then
+      value="${value%%[[:space:]]#*}"
+      value="$(_trim_spaces "${value}")"
+    fi
+
+    # 去除外层引号
+    if [[ "${value}" =~ ^\".*\"$ ]]; then
+      value="${value:1:${#value}-2}"
+      value="${value//\\\"/\"}"
+      value="${value//\\\\/\\}"
+    elif [[ "${value}" =~ ^\'.*\'$ ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    printf -v "${key}" '%s' "${value}"
+  done < "${file}"
+}
 
 # ---------- 配置加载 ----------
 load_config() {
@@ -74,7 +161,6 @@ load_config() {
     "${VPSMAGIC_HOME}/config.env"
     "/etc/vpsmagic/config.env"
     "${HOME}/.vpsmagic.env"
-    "./config.env"
   )
 
   local found=""
@@ -101,9 +187,8 @@ load_config() {
     fi
   fi
 
-  # shellcheck disable=SC1090
-  if ! source "${found}"; then
-    log_error "配置文件加载失败: ${found}"
+  if ! _load_config_file_safely "${found}"; then
+    log_error "配置文件解析失败: ${found}"
     return 1
   fi
 
@@ -175,7 +260,9 @@ validate_config() {
 # ---------- 模块启用检查 ----------
 is_module_enabled() {
   local module="$1"
-  local var_name="ENABLE_${module^^}"
+  local module_upper
+  module_upper="$(printf '%s' "${module}" | tr '[:lower:]' '[:upper:]')"
+  local var_name="ENABLE_${module_upper}"
 
   # 动态读取变量值
   local val="${!var_name:-true}"

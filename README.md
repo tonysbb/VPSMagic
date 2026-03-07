@@ -6,7 +6,7 @@
 
 - 📦 **全量备份**：Docker Compose / 独立容器 / Systemd 服务 / 反代配置 / 数据库 / SSL 证书 / Crontab / 防火墙 / 用户目录 / 自定义路径
 - ☁️ **异地推送**：通过 rclone 上传至 WebDAV (OpenList)、Google Drive、OneDrive、S3 等 40+ 存储后端
-- 🔄 **一键恢复**：在新 VPS 上拉取最新备份，自动还原所有服务并重新启动
+- 🔄 **一键恢复**：在新 VPS 上拉取最新备份，自动还原主要服务并重新启动（独立容器提供重建清单）
 - 🔐 **安全可靠**：AES-256 可选加密 · SHA256 完整性校验 · 配置文件权限保护
 - 🚀 **在线迁移**：两台 VPS 都在线时，通过 SSH 直推备份并自动恢复，无需绕路云存储
 - ⏰ **定时调度**：cron 自动备份，Telegram 通知结果
@@ -187,7 +187,7 @@ vpsmagic restore
 3. 下载并校验 SHA256
 4. 解密（如果加密了）
 5. 按模块逐一还原配置和数据
-6. 自动启动 Docker 容器和 Systemd 服务
+6. 自动启动 Docker Compose 和 Systemd 服务（独立容器会给出重建提示）
 
 预计恢复时间：**10-30 分钟**（取决于服务数量和网络带宽）。
 
@@ -238,7 +238,7 @@ vpsmagic migrate root@new-vps --skip-restore
 | 模块 | 配置项 | 备份内容 |
 |------|--------|----------|
 | Docker Compose | `ENABLE_DOCKER_COMPOSE` | compose 文件、.env、卷数据、镜像清单 |
-| 独立容器 | `ENABLE_DOCKER_STANDALONE` | inspect 配置、卷数据 |
+| 独立容器 | `ENABLE_DOCKER_STANDALONE` | inspect 配置、卷数据（恢复时按清单手动重建） |
 | Systemd | `ENABLE_SYSTEMD` | .service 文件、程序目录、工作目录 |
 | 反向代理 | `ENABLE_REVERSE_PROXY` | Nginx/Caddy/Apache/Traefik 配置 |
 | 数据库 | `ENABLE_DATABASE` | MySQL/PostgreSQL dump、SQLite 文件 |

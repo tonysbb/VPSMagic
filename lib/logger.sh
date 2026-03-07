@@ -46,8 +46,11 @@ _log_to_file() {
         return 0
       fi
     fi
-    [[ "${_LOG_FILE_WRITABLE}" == "1" ]] && echo "[$(_ts)] $*" >> "${LOG_FILE}" 2>/dev/null
+    if [[ "${_LOG_FILE_WRITABLE}" == "1" ]]; then
+      echo "[$(_ts)] $*" >> "${LOG_FILE}" 2>/dev/null || true
+    fi
   fi
+  return 0
 }
 
 # ---------- 公开日志函数 ----------
