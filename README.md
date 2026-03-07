@@ -1,6 +1,6 @@
 # VPS Magic Backup
 
-一套 Bash 脚本工具，面向个人/小团队 VPS 运维场景，实现 **一键备份所有服务 → 推送 WebDAV/GDrive 异地存储 → VPS 故障后在新机器上快速恢复** 的完整灾备链路。
+一套 Bash 脚本工具，面向个人/小团队 VPS 运维场景，实现 **一键备份所有服务 → 推送 WebDAV/GDrive 异地存储 → VPS 故障后在新机器上快速恢复** 的完整灾备链路。支持 **在线迁移** — 两台 VPS 都正常时通过 SSH 直接推送并恢复。
 
 ## ✨ 特性
 
@@ -8,6 +8,7 @@
 - ☁️ **异地推送**：通过 rclone 上传至 WebDAV (OpenList)、Google Drive、OneDrive、S3 等 40+ 存储后端
 - 🔄 **一键恢复**：在新 VPS 上拉取最新备份，自动还原所有服务并重新启动
 - 🔐 **安全可靠**：AES-256 可选加密 · SHA256 完整性校验 · 配置文件权限保护
+- 🚀 **在线迁移**：两台 VPS 都在线时，通过 SSH 直推备份并自动恢复，无需绕路云存储
 - ⏰ **定时调度**：cron 自动备份，Telegram 通知结果
 - 🧩 **模块化架构**：10 个采集器独立开关，按需启用
 - 🎯 **入门友好**：交互式配置向导，dry-run 模拟模式，详细的中文日志
@@ -38,7 +39,8 @@ VPSMagicBackup/
 ├── modules/                 # 功能模块
 │   ├── backup.sh            # 备份总控
 │   ├── upload.sh            # rclone 上传 + 轮转
-│   ├── restore.sh           # 恢复总控
+│   ├── restore.sh           # 恢复总控 (远端 + 本地文件)
+│   ├── migrate.sh           # 在线迁移 (VPS → VPS)
 │   └── schedule.sh          # cron 调度管理
 └── README.md
 ```
@@ -139,6 +141,8 @@ vpsmagic schedule status
 | `vpsmagic backup` | 执行全量备份 (采集 + 打包 + 上传) |
 | `vpsmagic upload` | 仅上传最新的本地备份到远端 |
 | `vpsmagic restore` | 从远端下载并恢复备份 |
+| `vpsmagic restore --local <path>` | 从本地文件恢复备份 |
+| `vpsmagic migrate user@host` | 在线迁移到另一台 VPS |
 | `vpsmagic schedule install` | 安装定时备份 cron 任务 |
 | `vpsmagic schedule remove` | 移除定时任务 |
 | `vpsmagic schedule status` | 查看调度状态和最近执行记录 |
@@ -186,6 +190,34 @@ vpsmagic restore
 6. 自动启动 Docker 容器和 Systemd 服务
 
 预计恢复时间：**10-30 分钟**（取决于服务数量和网络带宽）。
+
+## 🚀 在线迁移 (VPS → VPS)
+
+当两台 VPS **都正常运行**时（换机、升配、换线路等），无需绕路云存储，直接推送：
+
+```bash
+# 前提: 已在源机配好到目标机的 SSH 密钥认证
+ssh-copy-id root@new-vps
+
+# 一键迁移 (采集 → 打包 → SSH 推送 → 远程恢复)
+vpsmagic migrate root@new-vps
+
+# 指定端口和带宽限制
+vpsmagic migrate root@new-vps -p 2222 --bwlimit 10m
+
+# 仅推送不恢复 (想在目标机手动检查后再恢复)
+vpsmagic migrate root@new-vps --skip-restore
+# 然后在目标机上手动恢复:
+# vpsmagic restore --local /opt/vpsmagic/backups/restore/xxx.tar.gz
+```
+
+### migrate vs restore 对比
+
+| 场景 | 推荐命令 | 说明 |
+|------|---------|------|
+| 源机已挂 / 灾备恢复 | `vpsmagic restore` | 从云存储下载恢复 |
+| 两台都在线 / 计划迁移 | `vpsmagic migrate` | SSH 直推，速度快一倍 |
+| 目标机有备份文件 | `vpsmagic restore --local` | 本地文件恢复 |
 
 ## ⚙️ 配置说明
 
@@ -235,7 +267,8 @@ vpsmagic restore
 - 🎉 初始版本发布
 - 10 个备份采集器 (Docker Compose/独立容器/Systemd/反代/数据库/SSL/Crontab/防火墙/用户目录/自定义路径)
 - rclone 异地上传 + 本地/远端轮转清理
-- 交互式恢复流程
+- 交互式恢复流程 + 本地文件恢复 (`--local`)
+- 🚀 在线迁移功能 (`vpsmagic migrate user@host`)
 - 交互式配置向导 (init)
 - cron 定时备份管理
 - AES-256 可选加密

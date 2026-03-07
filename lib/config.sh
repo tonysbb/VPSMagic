@@ -58,6 +58,12 @@ LOG_FILE="${LOG_FILE:-/var/log/vpsmagic.log}"
 # 调度
 SCHEDULE_CRON="${SCHEDULE_CRON:-0 3 * * *}"
 
+# 迁移
+MIGRATE_SSH_PORT="${MIGRATE_SSH_PORT:-22}"
+MIGRATE_SSH_KEY="${MIGRATE_SSH_KEY:-}"
+MIGRATE_BW_LIMIT="${MIGRATE_BW_LIMIT:-}"
+MIGRATE_TARGET="${MIGRATE_TARGET:-}"
+
 # ---------- 配置加载 ----------
 load_config() {
   local config_file="${1:-}"
@@ -112,7 +118,7 @@ validate_config() {
   local errors=0
 
   case "${mode}" in
-    backup|upload|restore)
+    backup|upload)
       if [[ -z "${RCLONE_REMOTE}" ]]; then
         log_error "RCLONE_REMOTE 未配置。请在配置文件中设置远端路径。"
         log_info "  示例: RCLONE_REMOTE=\"mywebdav:backup/vps1\""
@@ -122,6 +128,30 @@ validate_config() {
         log_error "rclone 未安装。"
         log_info "  安装: curl https://rclone.org/install.sh | sudo bash"
         ((errors++))
+      fi
+      ;;
+    restore)
+      # restore 模式现在支持 --local，仅在非 local 模式时检查 rclone
+      if [[ -z "${RESTORE_LOCAL_FILE:-}" ]]; then
+        if [[ -z "${RCLONE_REMOTE}" ]]; then
+          log_error "RCLONE_REMOTE 未配置。如需从本地文件恢复，请使用: vpsmagic restore --local <文件路径>"
+          ((errors++))
+        fi
+        if ! command -v rclone >/dev/null 2>&1; then
+          log_error "rclone 未安装。"
+          log_info "  安装: curl https://rclone.org/install.sh | sudo bash"
+          ((errors++))
+        fi
+      fi
+      ;;
+    migrate)
+      # 迁移模式不需要 rclone，但需要 SSH
+      if ! command -v ssh >/dev/null 2>&1; then
+        log_error "ssh 未安装。"
+        ((errors++))
+      fi
+      if ! command -v rsync >/dev/null 2>&1; then
+        log_warn "rsync 未安装，将回退使用 scp。建议安装 rsync 获得更好的体验。"
       fi
       ;;
   esac

@@ -7,6 +7,12 @@
 _MODULE_RESTORE_LOADED=1
 
 run_restore() {
+  # 本地文件恢复模式 (由 migrate 或 --local 触发)
+  if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
+    _restore_from_local "${RESTORE_LOCAL_FILE}"
+    return $?
+  fi
+
   local start_ts
   start_ts="$(date +%s)"
 
@@ -17,6 +23,7 @@ run_restore() {
 
   if [[ -z "${RCLONE_REMOTE:-}" ]]; then
     log_error "RCLONE_REMOTE 未配置，无法从远端恢复。"
+    log_info "如果要从本地文件恢复，请使用: vpsmagic restore --local <文件路径>"
     return 1
   fi
 
@@ -190,9 +197,13 @@ run_restore() {
   done
   echo
 
-  if ! confirm "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "y"; then
-    log_warn "用户取消恢复。"
-    return 0
+  if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+    if ! confirm "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "y"; then
+      log_warn "用户取消恢复。"
+      return 0
+    fi
+  else
+    log_info "自动确认模式，跳过交互。"
   fi
 
   # ==================== 第7步: 执行恢复 ====================
@@ -782,4 +793,172 @@ _restore_custom_paths() {
   done < "${mod_dir}/_path_map.txt"
 
   summary_add "ok" "恢复自定义路径" "已恢复"
+}
+
+# ==================== 本地文件恢复 (迁移模式) ====================
+
+_restore_from_local() {
+  local local_archive="$1"
+  local start_ts
+  start_ts="$(date +%s)"
+
+  log_banner "VPS Magic Backup — 恢复模式 (本地文件)"
+
+  if [[ ! -f "${local_archive}" ]]; then
+    log_error "指定的本地备份文件不存在: ${local_archive}"
+    return 1
+  fi
+
+  local selected
+  selected="$(basename "${local_archive}")"
+  local sum_file="${local_archive}.sha256"
+
+  log_info "恢复文件: ${selected}"
+  log_info "文件大小: $(human_size "$(get_file_size "${local_archive}")")"
+  echo
+
+  # ==================== 校验 ====================
+  log_step "第1步: 校验文件完整性..."
+
+  if [[ -f "${sum_file}" ]]; then
+    if verify_checksum "${local_archive}" "${sum_file}"; then
+      log_success "SHA256 校验通过"
+    else
+      log_error "SHA256 校验失败! 文件可能已损坏。"
+      if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+        if ! confirm "是否继续恢复（不推荐）？" "n"; then
+          return 1
+        fi
+      else
+        log_warn "自动模式: 继续恢复"
+      fi
+    fi
+  else
+    log_warn "未找到校验文件，跳过校验。"
+  fi
+
+  # ==================== 解密 (如果需要) ====================
+  local archive_to_extract="${local_archive}"
+
+  if [[ "${selected}" == *.enc ]]; then
+    log_step "第2步: 解密备份..."
+    if [[ -z "${BACKUP_ENCRYPTION_KEY:-}" ]]; then
+      read -rs -p "请输入解密密码: " BACKUP_ENCRYPTION_KEY
+      echo
+    fi
+    local decrypted="${local_archive%.enc}"
+    if log_dry_run "解密 ${selected}"; then :; else
+      if decrypt_file "${local_archive}" "${decrypted}" "${BACKUP_ENCRYPTION_KEY}"; then
+        archive_to_extract="${decrypted}"
+        log_success "解密成功"
+      else
+        log_error "解密失败! 密码可能不正确。"
+        return 1
+      fi
+    fi
+  fi
+
+  # ==================== 解压 ====================
+  log_step "第3步: 解压备份..."
+
+  local restore_dir="${BACKUP_ROOT}/restore"
+  safe_mkdir "${restore_dir}"
+  local extract_dir="${restore_dir}/extracted"
+  rm -rf "${extract_dir}" 2>/dev/null || true
+  safe_mkdir "${extract_dir}"
+
+  if log_dry_run "解压 ${archive_to_extract}"; then :; else
+    tar -xzf "${archive_to_extract}" -C "${extract_dir}" 2>/dev/null || {
+      log_error "解压失败!"
+      return 1
+    }
+    log_success "解压完成"
+  fi
+
+  # 找到解压后的根目录
+  local backup_data_dir
+  backup_data_dir="$(find "${extract_dir}" -maxdepth 1 -mindepth 1 -type d | head -1)"
+  if [[ -z "${backup_data_dir}" ]]; then
+    backup_data_dir="${extract_dir}"
+  fi
+
+  # 读取 manifest
+  if [[ -f "${backup_data_dir}/manifest.txt" ]]; then
+    echo
+    log_info "备份信息:"
+    while IFS='=' read -r key value; do
+      echo "  ${key}: ${value}"
+    done < "${backup_data_dir}/manifest.txt"
+    echo
+  fi
+
+  # ==================== 确认恢复范围 ====================
+  log_step "第4步: 确认恢复范围..."
+
+  echo
+  echo -e "${_CLR_BOLD}备份包含以下模块:${_CLR_NC}"
+  local -a restore_modules=()
+  for dir in "${backup_data_dir}"/*/; do
+    [[ -d "${dir}" ]] || continue
+    local mod_name
+    mod_name="$(basename "${dir}")"
+    [[ "${mod_name}" == "system_info" ]] && continue
+    restore_modules+=("${mod_name}")
+    echo "  ✓ ${mod_name}"
+  done
+  echo
+
+  if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+    if ! confirm "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "y"; then
+      log_warn "用户取消恢复。"
+      return 0
+    fi
+  else
+    log_info "自动确认模式，开始恢复。"
+  fi
+
+  # ==================== 执行恢复 ====================
+  log_step "第5步: 执行恢复..."
+
+  for mod in "${restore_modules[@]}"; do
+    local mod_dir="${backup_data_dir}/${mod}"
+    echo
+    case "${mod}" in
+      docker_compose)    _restore_docker_compose "${mod_dir}" ;;
+      docker_standalone) _restore_docker_standalone "${mod_dir}" ;;
+      systemd)           _restore_systemd "${mod_dir}" ;;
+      reverse_proxy)     _restore_reverse_proxy "${mod_dir}" ;;
+      database)          _restore_database "${mod_dir}" ;;
+      ssl_certs)         _restore_ssl_certs "${mod_dir}" ;;
+      crontab)           _restore_crontab "${mod_dir}" ;;
+      firewall)          _restore_firewall "${mod_dir}" ;;
+      user_home)         _restore_user_home "${mod_dir}" ;;
+      custom_paths)      _restore_custom_paths "${mod_dir}" ;;
+      *)                 log_warn "未知模块 ${mod}，跳过。" ;;
+    esac
+  done
+
+  # ==================== 完成 ====================
+  local end_ts
+  end_ts="$(date +%s)"
+  local elapsed
+  elapsed="$(elapsed_time "${start_ts}" "${end_ts}")"
+
+  echo
+  log_separator "═" 56
+  log_success "恢复完成! (本地文件模式)"
+  echo "  📦 恢复自: ${selected}"
+  echo "  ⏱  耗时: ${elapsed}"
+  log_separator "═" 56
+  echo
+
+  summary_render
+  notify_restore_result "${selected}" "${elapsed}"
+
+  echo -e "${_CLR_BOLD}${_CLR_YELLOW}建议操作:${_CLR_NC}"
+  echo "  1. 检查所有服务是否正常运行"
+  echo "  2. 验证域名和 SSL 证书"
+  echo "  3. 测试数据库连接"
+  echo "  4. 配置新的定时备份: vpsmagic schedule install"
+  echo
 }

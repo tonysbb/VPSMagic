@@ -10,6 +10,7 @@ backups/
 *.tar.gz
 *.tar.gz.enc
 *.sha256
+.migrate_*
 
 # 日志
 *.log

@@ -29,6 +29,8 @@ VERBOSE=0
 CONFIG_FILE=""
 SUBCOMMAND=""
 SUBCMD_ARGS=()
+RESTORE_LOCAL_FILE="${RESTORE_LOCAL_FILE:-}"
+RESTORE_AUTO_CONFIRM="${RESTORE_AUTO_CONFIRM:-0}"
 
 # ---------- 加载库文件 ----------
 # shellcheck source=lib/logger.sh
@@ -71,6 +73,8 @@ source "${SCRIPT_DIR}/modules/upload.sh"
 source "${SCRIPT_DIR}/modules/restore.sh"
 # shellcheck source=modules/schedule.sh
 source "${SCRIPT_DIR}/modules/schedule.sh"
+# shellcheck source=modules/migrate.sh
+source "${SCRIPT_DIR}/modules/migrate.sh"
 
 # ---------- 帮助信息 ----------
 show_help() {
@@ -88,6 +92,7 @@ show_help() {
     backup          执行全量备份 (采集 + 打包 + 上传)
     upload          仅上传最新的本地备份到远端
     restore         从远端下载并恢复备份
+    migrate         在线迁移到另一台 VPS (直推模式)
     schedule        管理定时备份任务
       install         安装 cron 定时任务
       remove          移除 cron 定时任务
@@ -118,8 +123,16 @@ show_help() {
     # 安装每天凌晨3点自动备份
     vpsmagic schedule install
 
-    # 在新 VPS 上恢复
+    # 在新 VPS 上恢复 (从远端)
     vpsmagic restore
+
+    # 从本地文件恢复
+    vpsmagic restore --local /path/to/backup.tar.gz
+
+    # 在线迁移到新 VPS
+    vpsmagic migrate root@new-vps
+    vpsmagic migrate root@new-vps -p 2222 --bwlimit 10m
+    vpsmagic migrate root@new-vps --skip-restore
 
   文档: https://github.com/your/VPSMagicBackup
 
@@ -401,7 +414,7 @@ SCHEDULE_CRON=\"0 3 * * *\"
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      backup|upload|restore|schedule|status|init|help)
+      backup|upload|restore|schedule|status|init|help|migrate)
         SUBCOMMAND="$1"
         shift
         # 收集子命令参数
@@ -412,6 +425,12 @@ parse_args() {
             --config)
               [[ $# -ge 2 ]] || { log_error "--config 需要一个参数"; exit 1; }
               CONFIG_FILE="$2"; shift 2 ;;
+            --local)
+              # restore --local <path>
+              [[ $# -ge 2 ]] || { log_error "--local 需要指定备份文件路径"; exit 1; }
+              RESTORE_LOCAL_FILE="$2"; shift 2 ;;
+            --auto-confirm)
+              RESTORE_AUTO_CONFIRM=1; shift ;;
             *)
               SUBCMD_ARGS+=("$1"); shift ;;
           esac
@@ -480,6 +499,10 @@ main() {
     restore)
       validate_config "restore" || exit 1
       run_restore
+      ;;
+    migrate)
+      validate_config "migrate" || exit 1
+      run_migrate
       ;;
     schedule)
       run_schedule "${SUBCMD_ARGS[0]:-status}"

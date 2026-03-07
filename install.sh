@@ -243,6 +243,9 @@ main() {
   echo "  恢复命令 (在新 VPS 上):"
   echo "    vpsmagic restore"
   echo
+  echo "  在线迁移 (从源 VPS 执行):"
+  echo "    vpsmagic migrate root@new-vps"
+  echo
   echo "  更多帮助:  vpsmagic help"
   echo
 }

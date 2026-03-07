@@ -113,3 +113,42 @@ notify_message() {
   fi
   _tg_send "$1"
 }
+
+# ---------- 发送迁移完成通知 ----------
+notify_migrate_result() {
+  if [[ "${NOTIFY_ENABLED:-false}" != "true" ]]; then
+    return 0
+  fi
+
+  local hostname
+  hostname="$(hostname 2>/dev/null || echo 'unknown')"
+  local timestamp
+  timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+
+  local target_host="${1:-unknown}"
+  local archive_size="${2:-unknown}"
+  local elapsed="${3:-unknown}"
+  local skip_restore="${4:-0}"
+
+  local mode_str="完整迁移 (已恢复)"
+  if [[ "${skip_restore}" == "1" ]]; then
+    mode_str="仅推送 (未恢复)"
+  fi
+
+  local summary
+  summary="$(summary_render)"
+
+  local message="🚀 *VPS Magic Migration Report*
+━━━━━━━━━━━━━━━━━━━━
+🏷 源主机: \`${hostname}\`
+🎯 目标机: \`${target_host}\`
+📅 时间: \`${timestamp}\`
+📦 大小: \`${archive_size}\`
+⏱ 耗时: \`${elapsed}\`
+📋 模式: \`${mode_str}\`
+━━━━━━━━━━━━━━━━━━━━
+
+${summary}"
+
+  _tg_send "${message}"
+}
