@@ -67,17 +67,38 @@ collect_docker_compose() {
       continue
     fi
 
-    local proj_name
-    proj_name="$(basename "${proj_path}")"
-    local proj_backup="${target_dir}/${proj_name}"
+    local compose_project_name
+    compose_project_name="$(basename "${proj_path}")"
+
+    local backup_key="${compose_project_name}"
+    local proj_backup="${target_dir}/${backup_key}"
+    if [[ -d "${proj_backup}" ]]; then
+      local suffix=""
+      if command -v sha256sum >/dev/null 2>&1; then
+        suffix="$(printf '%s' "${proj_path}" | sha256sum | awk '{print substr($1,1,8)}')"
+      elif command -v shasum >/dev/null 2>&1; then
+        suffix="$(printf '%s' "${proj_path}" | shasum -a 256 | awk '{print substr($1,1,8)}')"
+      else
+        suffix="$(date +%s)"
+      fi
+      backup_key="${compose_project_name}__${suffix}"
+      proj_backup="${target_dir}/${backup_key}"
+    fi
     safe_mkdir "${proj_backup}"
 
-    log_info "  备份项目: ${proj_name} (${proj_path})"
+    if [[ "${backup_key}" == "${compose_project_name}" ]]; then
+      log_info "  备份项目: ${compose_project_name} (${proj_path})"
+    else
+      log_info "  备份项目: ${compose_project_name} (${proj_path}) -> ${backup_key}"
+    fi
 
     if log_dry_run "备份 Docker Compose 项目: ${proj_path}"; then
       ((count++))
       continue
     fi
+
+    # 记录原始 compose 项目名，恢复卷名前缀时使用
+    echo "${compose_project_name}" > "${proj_backup}/_compose_project_name.txt"
 
     # 复制 compose 文件
     for cf in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
@@ -107,7 +128,7 @@ collect_docker_compose() {
       for vol_name in "${volumes[@]}"; do
         # 查找卷的实际路径
         local vol_mount
-        vol_mount="$(docker volume inspect "${proj_name}_${vol_name}" --format '{{ .Mountpoint }}' 2>/dev/null || \
+        vol_mount="$(docker volume inspect "${compose_project_name}_${vol_name}" --format '{{ .Mountpoint }}' 2>/dev/null || \
                      docker volume inspect "${vol_name}" --format '{{ .Mountpoint }}' 2>/dev/null || true)"
         if [[ -n "${vol_mount}" && -d "${vol_mount}" ]]; then
           log_debug "    备份卷: ${vol_name} (${vol_mount})"
@@ -169,4 +190,3 @@ collect_docker_compose() {
   log_success "Docker Compose: 已备份 ${count} 个项目"
   summary_add "ok" "Docker Compose" "${count} 个项目"
 }
-

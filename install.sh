@@ -4,7 +4,7 @@
 # 在新 VPS 上运行此脚本以安装 VPSMagic 及其依赖
 #
 # 用法:
-#   curl -sSL https://raw.githubusercontent.com/your/VPSMagicBackup/main/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/tonysbb/VPSMagic/main/install.sh | bash
 #   或:
 #   bash install.sh
 # ============================================================
@@ -175,14 +175,14 @@ main() {
   else
     info "从 GitHub 克隆..."
     if command -v git >/dev/null 2>&1; then
-      git clone https://github.com/your/VPSMagicBackup.git "${INSTALL_DIR}" 2>/dev/null || {
+      git clone https://github.com/tonysbb/VPSMagic.git "${INSTALL_DIR}" 2>/dev/null || {
         error "Git 克隆失败。请手动下载并解压到 ${INSTALL_DIR}"
         exit 1
       }
       source_dir="${INSTALL_DIR}"
     else
       install_package "git"
-      git clone https://github.com/your/VPSMagicBackup.git "${INSTALL_DIR}" 2>/dev/null
+      git clone https://github.com/tonysbb/VPSMagic.git "${INSTALL_DIR}" 2>/dev/null
       source_dir="${INSTALL_DIR}"
     fi
   fi

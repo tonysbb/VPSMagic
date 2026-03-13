@@ -51,10 +51,10 @@ VPSMagicBackup/
 
 ```bash
 # 方式一：一键安装 (在 VPS 上以 root 运行)
-curl -sSL https://raw.githubusercontent.com/your/VPSMagicBackup/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/tonysbb/VPSMagic/main/install.sh | bash
 
 # 方式二：手动安装
-git clone https://github.com/your/VPSMagicBackup.git /opt/vpsmagic
+git clone https://github.com/tonysbb/VPSMagic.git /opt/vpsmagic
 cd /opt/vpsmagic
 bash install.sh
 ```
@@ -168,7 +168,7 @@ vpsmagic schedule status
 apt update && apt install -y curl git
 
 # 2. 安装 VPSMagic 及依赖
-git clone https://github.com/your/VPSMagicBackup.git /opt/vpsmagic
+git clone https://github.com/tonysbb/VPSMagic.git /opt/vpsmagic
 bash /opt/vpsmagic/install.sh
 
 # 3. 配置 rclone (指向你的 WebDAV/GDrive)

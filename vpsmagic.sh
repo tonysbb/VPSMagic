@@ -134,7 +134,7 @@ show_help() {
     vpsmagic migrate root@new-vps -p 2222 --bwlimit 10m
     vpsmagic migrate root@new-vps --skip-restore
 
-  文档: https://github.com/your/VPSMagicBackup
+  文档: https://github.com/tonysbb/VPSMagic
 
 EOF
 }
@@ -478,6 +478,17 @@ main() {
 
   # 加载配置
   load_config "${CONFIG_FILE}"
+
+  # 高权限命令保护，避免非 root 运行产生不完整结果
+  case "${SUBCOMMAND}" in
+    backup|upload|restore|migrate)
+      require_root
+      ;;
+    schedule)
+      local schedule_action="${SUBCMD_ARGS[0]:-status}"
+      [[ "${schedule_action}" != "status" ]] && require_root
+      ;;
+  esac
 
   # dry-run 提示
   if [[ "${DRY_RUN}" == "1" ]]; then

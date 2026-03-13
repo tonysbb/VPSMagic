@@ -26,6 +26,45 @@ _read_env_value() {
   ' "${env_file}" 2>/dev/null
 }
 
+_is_unsafe_tar_member() {
+  local member="$1"
+  member="${member#./}"
+  case "${member}" in
+    ""|.)
+      return 1
+      ;;
+    /*|../*|*/../*|..|[A-Za-z]:/*|[A-Za-z]:\\*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+_extract_tar_safe() {
+  local archive="$1"
+  local target_dir="$2"
+  local label="${3:-tar}"
+
+  if [[ ! -f "${archive}" ]]; then
+    log_error "${label}: 文件不存在 (${archive})"
+    return 1
+  fi
+
+  while IFS= read -r entry; do
+    if _is_unsafe_tar_member "${entry}"; then
+      log_error "${label}: 检测到不安全路径条目 (${entry})，拒绝解压"
+      return 1
+    fi
+  done < <(tar -tzf "${archive}" 2>/dev/null) || {
+    log_error "${label}: 无法读取归档目录 (${archive})"
+    return 1
+  }
+
+  tar -xzf "${archive}" -C "${target_dir}" 2>/dev/null
+}
+
 run_restore() {
   # 本地文件恢复模式 (由 migrate 或 --local 触发)
   if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
@@ -177,7 +216,7 @@ run_restore() {
   safe_mkdir "${extract_dir}"
 
   if log_dry_run "解压 ${archive_to_extract}"; then :; else
-    tar -xzf "${archive_to_extract}" -C "${extract_dir}" 2>/dev/null || {
+    _extract_tar_safe "${archive_to_extract}" "${extract_dir}" "主备份包" || {
       log_error "解压失败!"
       return 1
     }
@@ -308,18 +347,20 @@ _restore_docker_compose() {
 
   for proj_dir in "${mod_dir}"/*/; do
     [[ -d "${proj_dir}" ]] || continue
-    local proj_name
-    proj_name="$(basename "${proj_dir}")"
+    local backup_key
+    backup_key="$(basename "${proj_dir}")"
+    local compose_project_name="${backup_key}"
+    [[ -f "${proj_dir}/_compose_project_name.txt" ]] && compose_project_name="$(cat "${proj_dir}/_compose_project_name.txt")"
     local original_path=""
     [[ -f "${proj_dir}/_original_path.txt" ]] && original_path="$(cat "${proj_dir}/_original_path.txt")"
 
     if [[ -z "${original_path}" ]]; then
-      original_path="/opt/${proj_name}"
+      original_path="/opt/${compose_project_name}"
     fi
 
-    log_info "  恢复项目: ${proj_name} -> ${original_path}"
+    log_info "  恢复项目: ${compose_project_name} (${backup_key}) -> ${original_path}"
 
-    if log_dry_run "恢复 Docker Compose: ${proj_name}"; then continue; fi
+    if log_dry_run "恢复 Docker Compose: ${compose_project_name}"; then continue; fi
 
     safe_mkdir "${original_path}"
 
@@ -339,7 +380,7 @@ _restore_docker_compose() {
         vol_name="$(basename "${vol_archive}" .tar.gz)"
         log_debug "    恢复卷: ${vol_name}"
         # 创建 Docker volume
-        local full_vol="${proj_name}_${vol_name}"
+        local full_vol="${compose_project_name}_${vol_name}"
         docker volume create "${full_vol}" >/dev/null 2>&1 || true
         local vol_mount
         vol_mount="$(docker volume inspect "${full_vol}" --format '{{ .Mountpoint }}' 2>/dev/null)"
@@ -358,7 +399,17 @@ _restore_docker_compose() {
           safe_name="$(echo "${mount_src}" | tr '/' '_' | sed 's/^_//')"
           if [[ -f "${proj_dir}/bind_mounts/${safe_name}.tar.gz" ]]; then
             safe_mkdir "$(dirname "${mount_src}")"
-            tar -xzf "${proj_dir}/bind_mounts/${safe_name}.tar.gz" -C "$(dirname "${mount_src}")" 2>/dev/null || true
+            _extract_tar_safe "${proj_dir}/bind_mounts/${safe_name}.tar.gz" "$(dirname "${mount_src}")" "bind mount ${mount_src}" || {
+              log_warn "    bind mount 目录恢复失败: ${mount_src}"
+              continue
+            }
+            log_debug "    恢复 bind mount: ${mount_src}"
+          elif [[ -f "${proj_dir}/bind_mounts/${safe_name}" ]]; then
+            safe_mkdir "$(dirname "${mount_src}")"
+            cp -a "${proj_dir}/bind_mounts/${safe_name}" "${mount_src}" 2>/dev/null || {
+              log_warn "    bind mount 文件恢复失败: ${mount_src}"
+              continue
+            }
             log_debug "    恢复 bind mount: ${mount_src}"
           fi
         done < "${proj_dir}/bind_mounts/_mount_map.txt"
@@ -371,12 +422,6 @@ _restore_docker_compose() {
       log_debug "    恢复项目配置文件"
     fi
 
-    # 启动项目
-    log_info "  启动项目: ${proj_name}"
-    (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d 2>/dev/null) || {
-      log_warn "  项目 ${proj_name} 启动失败，请手动检查"
-    }
-
     # 恢复文件权限 (关键: 如 aria2 temp 需要 65534:65534 uid:gid)
     if [[ -f "${proj_dir}/_permissions.txt" ]]; then
       log_info "  恢复文件权限..."
@@ -388,6 +433,12 @@ _restore_docker_compose() {
       done < <(grep -v '^#' "${proj_dir}/_permissions.txt" 2>/dev/null)
       log_debug "    权限已恢复"
     fi
+
+    # 启动项目（在权限恢复之后）
+    log_info "  启动项目: ${compose_project_name}"
+    (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d 2>/dev/null) || {
+      log_warn "  项目 ${compose_project_name} 启动失败，请手动检查"
+    }
   done
 
   summary_add "ok" "恢复 Docker Compose" "已恢复"
@@ -899,7 +950,7 @@ _restore_from_local() {
   safe_mkdir "${extract_dir}"
 
   if log_dry_run "解压 ${archive_to_extract}"; then :; else
-    tar -xzf "${archive_to_extract}" -C "${extract_dir}" 2>/dev/null || {
+    _extract_tar_safe "${archive_to_extract}" "${extract_dir}" "主备份包" || {
       log_error "解压失败!"
       return 1
     }
