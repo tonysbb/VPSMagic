@@ -63,7 +63,7 @@ warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 confirm() {
-  local prompt="${1:-确认继续？}"
+  local prompt="${1:-$(lang_pick_install "确认继续？" "Continue?")}"
   local default="${2:-y}"
   local answer=""
   local hint="[y/N]"
@@ -81,7 +81,7 @@ parse_install_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --lang)
-        [[ $# -ge 2 ]] || { error "--lang 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { error "$(lang_pick_install "--lang 需要一个参数" "--lang requires a value")"; exit 1; }
         set_install_lang "$2"
         shift 2
         ;;
@@ -161,13 +161,13 @@ install_package() {
   local pm
   pm="$(detect_pkg_manager)"
 
-  info "安装 ${pkg}..."
+  info "$(lang_pick_install "安装" "Installing") ${pkg}..."
   case "${pm}" in
     apt) apt-get update -qq && apt-get install -y -qq "${pkg}" ;;
     dnf) dnf install -y -q "${pkg}" ;;
     yum) yum install -y -q "${pkg}" ;;
     apk) apk add --quiet "${pkg}" ;;
-    *) error "未知包管理器，请手动安装 ${pkg}"; return 1 ;;
+    *) error "$(lang_pick_install "未知包管理器，请手动安装" "Unknown package manager. Please install manually") ${pkg}"; return 1 ;;
   esac
 }
 
@@ -177,11 +177,11 @@ ensure_minimum_version() {
   local minimum_version="$3"
 
   if version_ge "${current_version}" "${minimum_version}"; then
-    success "${name} 版本满足要求: ${current_version} (>= ${minimum_version})"
+    success "$(lang_pick_install "${name} 版本满足要求" "${name} version satisfies the requirement"): ${current_version} (>= ${minimum_version})"
     return 0
   fi
 
-  warn "${name} 版本偏旧: ${current_version} (< ${minimum_version})"
+  warn "$(lang_pick_install "${name} 版本偏旧" "${name} version is older than recommended"): ${current_version} (< ${minimum_version})"
   return 1
 }
 
@@ -199,11 +199,11 @@ install_rclone() {
       fi
   fi
 
-  info "通过 rclone 官方安装脚本安装/升级 rclone..."
+  info "$(lang_pick_install "通过 rclone 官方安装脚本安装/升级 rclone..." "Installing/upgrading rclone with the official install script...")"
   if curl -sSL https://rclone.org/install.sh | bash 2>/dev/null; then
     local installed_version
     installed_version="$(detect_rclone_version)"
-    success "rclone 安装成功: ${installed_version}"
+    success "$(lang_pick_install "rclone 安装成功" "rclone installed successfully"): ${installed_version}"
   else
     error "$(lang_pick_install "rclone 自动安装失败。" "rclone automatic installation failed.")"
     echo "  $(lang_pick_install "请手动安装" "Please install manually"): https://rclone.org/install.sh"
@@ -230,7 +230,7 @@ install_rsync() {
     fi
   fi
 
-  info "通过系统官方仓库安装/升级 rsync..."
+  info "$(lang_pick_install "通过系统官方仓库安装/升级 rsync..." "Installing/upgrading rsync from the system repository...")"
   install_package "rsync" || return 1
 
   if command -v rsync >/dev/null 2>&1; then
@@ -242,7 +242,7 @@ install_rsync() {
 
 install_docker() {
   if command -v docker >/dev/null 2>&1; then
-    success "Docker 已安装: $(docker --version 2>/dev/null)"
+    success "$(lang_pick_install "Docker 已安装" "Docker is already installed"): $(docker --version 2>/dev/null)"
     return 0
   fi
 
@@ -258,7 +258,7 @@ install_docker() {
     return 0
   fi
 
-  info "安装 Docker..."
+  info "$(lang_pick_install "安装 Docker..." "Installing Docker...")"
   if curl -sSL https://get.docker.com | sh 2>/dev/null; then
     systemctl enable docker 2>/dev/null || true
     systemctl start docker 2>/dev/null || true
@@ -312,7 +312,7 @@ main() {
 
   # bc (用于大小格式化)
   if ! command -v bc >/dev/null 2>&1; then
-    install_package "bc" 2>/dev/null || warn "bc 安装失败 (非关键)"
+    install_package "bc" 2>/dev/null || warn "$(lang_pick_install "bc 安装失败 (非关键)" "bc installation failed (non-critical)")"
   fi
 
   # ---- 第2步: 安装 rclone ----
@@ -341,12 +341,12 @@ main() {
 
   if [[ -f "${script_dir}/vpsmagic.sh" ]]; then
     source_dir="${script_dir}"
-    info "使用本地文件: ${source_dir}"
+    info "$(lang_pick_install "使用本地文件" "Using local files"): ${source_dir}"
   else
-    info "从 GitHub 克隆..."
+    info "$(lang_pick_install "从 GitHub 克隆..." "Cloning from GitHub...")"
     if command -v git >/dev/null 2>&1; then
       git clone https://github.com/tonysbb/VPSMagic.git "${INSTALL_DIR}" 2>/dev/null || {
-        error "Git 克隆失败。请手动下载并解压到 ${INSTALL_DIR}"
+        error "$(lang_pick_install "Git 克隆失败。请手动下载并解压到" "Git clone failed. Please download and extract it manually to") ${INSTALL_DIR}"
         exit 1
       }
       source_dir="${INSTALL_DIR}"
@@ -361,7 +361,7 @@ main() {
   if [[ "${source_dir}" != "${INSTALL_DIR}" ]]; then
     mkdir -p "${INSTALL_DIR}"
     cp -a "${source_dir}/." "${INSTALL_DIR}/"
-    info "已复制文件到: ${INSTALL_DIR}"
+    info "$(lang_pick_install "已复制文件到" "Copied files to"): ${INSTALL_DIR}"
   fi
 
   # 设置权限
@@ -374,7 +374,7 @@ main() {
 exec "${INSTALL_DIR}/vpsmagic.sh" "$@"
 EOF
   chmod +x "${BIN_LINK}"
-  success "已创建命令: ${BIN_LINK}"
+  success "$(lang_pick_install "已创建命令" "Created command"): ${BIN_LINK}"
 
   # 创建备份目录
   mkdir -p /opt/vpsmagic/backups
@@ -422,6 +422,8 @@ EOF
   echo
   echo "  $(lang_pick_install "恢复命令 (在新 VPS 上)" "Restore command (on the new VPS)"):"
   echo "    vpsmagic restore"
+  echo "    $(lang_pick_install "如果源机和目标机都能访问同一个备份存储，可直接执行远端恢复。" "If both the source VPS and destination VPS can access the same backup storage, you can restore directly from remote.")"
+  echo "    $(lang_pick_install "如果目标机无法访问源机使用的 remote，请先把备份文件手动传到目标机，再执行 vpsmagic restore --local <file>。" "If the destination VPS cannot access the remote used by the source VPS, copy the backup file to the destination first and run vpsmagic restore --local <file>.")"
   echo
   echo "  $(lang_pick_install "Oracle Object Storage 提示" "Oracle Object Storage notes"):"
   echo "    - $(lang_pick_install "建议直接使用 rclone remote 访问对象存储，不要默认 mount 后再备份" "Use an rclone remote directly instead of mounting object storage by default")"

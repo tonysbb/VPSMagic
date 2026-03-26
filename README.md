@@ -195,6 +195,13 @@ vim /opt/vpsmagic/config.env
 vpsmagic restore
 ```
 
+如果**源服务器和目标服务器都能访问同一个备份存储**，可以直接执行 `vpsmagic restore` 从远端拉取备份。  
+如果**目标服务器无法访问源服务器使用的 remote**，请先把 `.tar.gz` 和对应 `.sha256` 文件手动传到目标服务器，再执行：
+
+```bash
+vpsmagic restore --local /path/to/backup.tar.gz
+```
+
 恢复流程会：
 1. 列出远端所有可用备份
 2. 用户选择要恢复的版本
