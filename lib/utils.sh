@@ -22,7 +22,7 @@ require_cmd() {
 
 require_root() {
   if [[ "$(id -u)" -ne 0 ]]; then
-    log_error "此操作需要 root 权限，请使用 sudo 或以 root 用户运行。"
+    log_error "$(lang_pick "此操作需要 root 权限，请使用 sudo 或以 root 用户运行。" "This action requires root privileges. Please use sudo or run as root.")"
     exit 1
   fi
 }
@@ -79,10 +79,10 @@ safe_copy() {
       return 1
     }
     return 0
-  else
-    log_debug "源不存在，跳过: ${src}"
-    return 1
   fi
+
+  log_debug "源不存在，跳过: ${src}"
+  return 0
 }
 
 safe_copy_dir() {
@@ -95,10 +95,10 @@ safe_copy_dir() {
       return 1
     }
     return 0
-  else
-    log_debug "源目录不存在，跳过: ${src}"
-    return 1
   fi
+
+  log_debug "源目录不存在，跳过: ${src}"
+  return 0
 }
 
 # ---------- 校验 ----------
@@ -191,6 +191,118 @@ get_file_size() {
   fi
 }
 
+get_file_mode() {
+  local path="$1"
+  if [[ ! -e "${path}" ]]; then
+    echo "unknown"
+    return 0
+  fi
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%a' "${path}" 2>/dev/null || echo "unknown"
+  else
+    stat -f '%Lp' "${path}" 2>/dev/null || echo "unknown"
+  fi
+}
+
+get_file_owner_group() {
+  local path="$1"
+  if [[ ! -e "${path}" ]]; then
+    echo "unknown:unknown"
+    return 0
+  fi
+  if stat --version >/dev/null 2>&1; then
+    stat -c '%U:%G' "${path}" 2>/dev/null || echo "unknown:unknown"
+  else
+    stat -f '%Su:%Sg' "${path}" 2>/dev/null || echo "unknown:unknown"
+  fi
+}
+
+get_primary_ip() {
+  local ip=""
+  if command -v hostname >/dev/null 2>&1; then
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  if [[ -z "${ip}" ]] && command -v ip >/dev/null 2>&1; then
+    ip="$(ip route get 1 2>/dev/null | awk '/src/ {for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}')"
+  fi
+  if [[ -z "${ip}" ]] && command -v ifconfig >/dev/null 2>&1; then
+    ip="$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')"
+  fi
+  echo "${ip:-unknown}"
+}
+
+relative_child_path() {
+  local base_dir="$1"
+  local child_path="$2"
+
+  case "${child_path}" in
+    "${base_dir}")
+      echo "."
+      ;;
+    "${base_dir}/"*)
+      echo "${child_path#${base_dir}/}"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+_archive_glob_candidates() {
+  local dir="$1"
+  local prefix="${2:-}"
+  local out_var="$3"
+
+  local nullglob_was_set=0
+  if shopt -q nullglob; then
+    nullglob_was_set=1
+  fi
+  shopt -s nullglob
+
+  eval "${out_var}=()"
+  if [[ -n "${prefix}" ]]; then
+    eval "${out_var}+=(\"\${dir}/\${prefix}\"_*.tar.gz)"
+    eval "${out_var}+=(\"\${dir}/\${prefix}\"_*.tar.gz.enc)"
+  else
+    eval "${out_var}+=(\"\${dir}\"/*.tar.gz)"
+    eval "${out_var}+=(\"\${dir}\"/*.tar.gz.enc)"
+  fi
+
+  if (( nullglob_was_set == 0 )); then
+    shopt -u nullglob
+  fi
+}
+
+list_archive_files_sorted() {
+  local dir="$1"
+  local prefix="${2:-}"
+  local order="${3:-desc}"
+
+  local -a candidates=()
+  _archive_glob_candidates "${dir}" "${prefix}" candidates
+  if (( ${#candidates[@]} == 0 )); then
+    return 0
+  fi
+
+  if [[ "${order}" == "asc" ]]; then
+    ls -1tr "${candidates[@]}" 2>/dev/null || true
+  else
+    ls -1t "${candidates[@]}" 2>/dev/null || true
+  fi
+}
+
+get_newest_archive_file() {
+  local dir="$1"
+  local prefix="${2:-}"
+  list_archive_files_sorted "${dir}" "${prefix}" "desc" | head -1
+}
+
+get_oldest_archive_file() {
+  local dir="$1"
+  local prefix="${2:-}"
+  list_archive_files_sorted "${dir}" "${prefix}" "asc" | head -1
+}
+
 # ---------- 交互式工具 ----------
 confirm() {
   local prompt="${1:-确认继续？}"
@@ -214,7 +326,7 @@ read_with_default() {
   local input=""
 
   if [[ -n "${default_value}" ]]; then
-    read -r -p "${prompt} [默认: ${default_value}]: " input
+    read -r -p "${prompt} [$(prompt_default_label): ${default_value}]: " input
   else
     read -r -p "${prompt}: " input
   fi
@@ -227,7 +339,7 @@ read_with_default() {
 show_progress() {
   local current="$1"
   local total="$2"
-  local label="${3:-进度}"
+  local label="${3:-$(lang_pick "进度" "Progress")}"
   local width=30
   local pct=$(( current * 100 / total ))
   local filled=$(( current * width / total ))
@@ -249,8 +361,8 @@ show_progress() {
 # 用法: parse_list "a, b, c" result_array
 parse_list() {
   local input="$1"
-  local -n _result_arr="$2"
-  _result_arr=()
+  local result_var="$2"
+  eval "${result_var}=()"
 
   # 替换换行为逗号，然后按逗号切分
   local normalized
@@ -261,7 +373,7 @@ parse_list() {
     # trim 空白
     item="$(echo "${item}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     if [[ -n "${item}" ]]; then
-      _result_arr+=("${item}")
+      eval "${result_var}+=(\"\${item}\")"
     fi
   done
 }
@@ -314,7 +426,7 @@ check_disk_space() {
   avail="$(get_disk_avail_bytes "${backup_dir}")"
 
   if (( avail == 0 )); then
-    log_warn "无法检测磁盘空间"
+    log_warn "$(lang_pick "无法检测磁盘空间" "Unable to detect disk space")"
     return 0
   fi
 
@@ -323,18 +435,18 @@ check_disk_space() {
 
   # 严重不足：可用空间 < 100MB
   if (( avail < 104857600 )); then
-    log_error "磁盘空间严重不足! 可用: ${avail_human}"
-    log_error "建议: 清理磁盘或减少 BACKUP_KEEP_LOCAL 值"
+    log_error "$(lang_pick "磁盘空间严重不足!" "Disk space is critically low!") $(lang_pick "可用" "Available"): ${avail_human}"
+    log_error "$(lang_pick "建议" "Recommendation"): $(lang_pick "清理磁盘或减少 BACKUP_KEEP_LOCAL 值" "free disk space or lower BACKUP_KEEP_LOCAL")"
     return 2
   fi
 
   # 空间不足：可用空间 < 预估需要
   if (( avail < est_bytes )); then
-    log_warn "磁盘空间可能不足。可用: ${avail_human}，建议至少: $(human_size "${est_bytes}")"
+    log_warn "$(lang_pick "磁盘空间可能不足。" "Disk space may be insufficient.") $(lang_pick "可用" "Available"): ${avail_human}, $(lang_pick "建议至少" "recommended at least"): $(human_size "${est_bytes}")"
     return 1
   fi
 
-  log_debug "磁盘空间检查通过: 可用 ${avail_human}"
+  log_debug "$(lang_pick "磁盘空间检查通过" "Disk space check passed"): $(lang_pick "可用" "available") ${avail_human}"
   return 0
 }
 
@@ -362,7 +474,7 @@ recommend_local_keep() {
       local fsize
       fsize="$(get_file_size "${f}")"
       total_size=$(( total_size + fsize ))
-      ((file_count++))
+      ((file_count+=1))
     done < <(find "${archive_dir}" -maxdepth 1 \( -name "*.tar.gz" -o -name "*.tar.gz.enc" \) -type f 2>/dev/null)
 
     if (( file_count > 0 )); then
@@ -387,4 +499,3 @@ recommend_local_keep() {
 
   echo "${recommended}"
 }
-

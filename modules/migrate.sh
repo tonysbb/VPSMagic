@@ -45,15 +45,15 @@ run_migrate() {
         ;;
       --skip-restore)
         skip_restore=1
-        ((i++))
+        ((i+=1))
         ;;
       --yes|-y)
         auto_confirm=1
-        ((i++))
+        ((i+=1))
         ;;
       *)
         remaining_args+=("${args[$i]}")
-        ((i++))
+        ((i+=1))
         ;;
     esac
   done
@@ -415,7 +415,7 @@ _migrate_run_local_backup() {
     echo "os=${_os_name}"
     echo "vpsmagic_version=${VPSMAGIC_VERSION}"
     local _ip_addrs
-    _ip_addrs="$(hostname -I 2>/dev/null | xargs || echo 'unknown')"
+    _ip_addrs="$(get_primary_ip)"
     echo "ip_addresses=${_ip_addrs}"
     local _docker_ver
     _docker_ver="$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' || echo 'none')"
@@ -455,58 +455,58 @@ _migrate_run_local_backup() {
     "CRONTAB" "FIREWALL" "USER_HOME" "CUSTOM_PATHS"
   )
   for m in "${all_modules[@]}"; do
-    is_module_enabled "${m}" && ((total_modules++))
+    is_module_enabled "${m}" && ((total_modules+=1))
   done
 
   log_info "共 ${total_modules} 个备份模块已启用"
 
   if is_module_enabled "DOCKER_COMPOSE"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_docker_compose "${staging_dir}"
   fi
   if is_module_enabled "DOCKER_STANDALONE"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_docker_standalone "${staging_dir}"
   fi
   if is_module_enabled "SYSTEMD"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_systemd_services "${staging_dir}"
   fi
   if is_module_enabled "REVERSE_PROXY"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_reverse_proxy "${staging_dir}"
   fi
   if is_module_enabled "DATABASE"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_databases "${staging_dir}"
   fi
   if is_module_enabled "SSL_CERTS"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_ssl_certs "${staging_dir}"
   fi
   if is_module_enabled "CRONTAB"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_crontab "${staging_dir}"
   fi
   if is_module_enabled "FIREWALL"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_firewall "${staging_dir}"
   fi
   if is_module_enabled "USER_HOME"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_user_home "${staging_dir}"
   fi
   if is_module_enabled "CUSTOM_PATHS"; then
-    ((completed_modules++))
+    ((completed_modules+=1))
     show_progress "${completed_modules}" "${total_modules}" "采集进度"
     collect_custom_paths "${staging_dir}"
   fi

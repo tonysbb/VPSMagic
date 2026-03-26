@@ -6,6 +6,14 @@
 [[ -n "${_MODULE_RESTORE_LOADED:-}" ]] && return 0
 _MODULE_RESTORE_LOADED=1
 
+_build_restore_rclone_opts() {
+  local out_var="$1"
+  eval "${out_var}=()"
+  if [[ -n "${RCLONE_CONF:-}" && -f "${RCLONE_CONF}" ]]; then
+    eval "${out_var}+=(\"--config\" \"\${RCLONE_CONF}\")"
+  fi
+}
+
 _read_env_value() {
   local env_file="$1"
   local key="$2"
@@ -75,74 +83,88 @@ run_restore() {
   local start_ts
   start_ts="$(date +%s)"
 
-  log_banner "VPS Magic Backup — 恢复模式"
+  log_banner "$(lang_pick "VPS Magic Backup — 恢复模式" "VPS Magic Backup — Restore Mode")"
 
   # ==================== 第1步: 列出可用备份 ====================
-  log_step "第1步: 查找可用备份..."
+  log_step "$(lang_pick "第1步: 查找可用备份..." "Step 1: Find available backups...")"
 
-  if [[ -z "${RCLONE_REMOTE:-}" ]]; then
-    log_error "RCLONE_REMOTE 未配置，无法从远端恢复。"
-    log_info "如果要从本地文件恢复，请使用: vpsmagic restore --local <文件路径>"
+  if ! command -v rclone >/dev/null 2>&1; then
+    log_error "$(lang_pick "rclone 未安装。请先安装" "rclone is not installed. Install it first"): curl https://rclone.org/install.sh | sudo bash"
     return 1
   fi
 
-  if ! command -v rclone >/dev/null 2>&1; then
-    log_error "rclone 未安装。请先安装: curl https://rclone.org/install.sh | sudo bash"
+  local -a restore_targets=()
+  get_backup_targets restore_targets
+  if [[ ${#restore_targets[@]} -eq 0 ]]; then
+    log_error "$(lang_pick "未找到可用的远端恢复目标。请设置 BACKUP_TARGETS 或 RCLONE_REMOTE。" "No remote restore target found. Please set BACKUP_TARGETS or RCLONE_REMOTE.")"
+    log_info "$(lang_pick "如果要从本地文件恢复，请使用" "To restore from a local file, use"): vpsmagic restore --local <file>"
     return 1
   fi
 
   local rclone_opts=()
-  if [[ -n "${RCLONE_CONF:-}" && -f "${RCLONE_CONF}" ]]; then
-    rclone_opts+=("--config" "${RCLONE_CONF}")
-  fi
+  _build_restore_rclone_opts rclone_opts
 
-  log_info "正在查询远端备份..."
+  log_info "$(lang_pick "正在查询远端备份..." "Querying remote backups...")"
   local -a available_backups=()
-  while IFS= read -r fname; do
-    fname="$(echo "${fname}" | xargs)"
-    if [[ "${fname}" == *.tar.gz || "${fname}" == *.tar.gz.enc ]]; then
-      available_backups+=("${fname}")
+  local -a available_backup_remotes=()
+  local remote=""
+  for remote in "${restore_targets[@]}"; do
+    local -a remote_files=()
+    while IFS= read -r fname; do
+      fname="$(echo "${fname}" | xargs)"
+      if [[ "${fname}" == *.tar.gz || "${fname}" == *.tar.gz.enc ]]; then
+        remote_files+=("${fname}")
+      fi
+    done < <(rclone lsf "${remote}/" "${rclone_opts[@]}" --files-only 2>/dev/null | sort -r)
+
+    if [[ ${#remote_files[@]} -eq 0 ]]; then
+      continue
     fi
-  done < <(rclone lsf "${RCLONE_REMOTE}/" "${rclone_opts[@]}" --files-only 2>/dev/null | sort -r)
+
+    for fname in "${remote_files[@]}"; do
+      available_backups+=("${fname}")
+      available_backup_remotes+=("${remote}")
+    done
+  done
 
   if [[ ${#available_backups[@]} -eq 0 ]]; then
-    log_error "远端没有找到任何备份文件。"
+    log_error "$(lang_pick "在所有候选远端中都没有找到备份文件。" "No backup files were found in any candidate remote.")"
     return 1
   fi
 
-  # 显示可用备份
   echo
-  echo -e "${_CLR_BOLD}可用备份 (共 ${#available_backups[@]} 份):${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "可用备份" "Available backups") ($(lang_pick "共" "total") ${#available_backups[@]} $(lang_pick "份" "files")):${_CLR_NC}"
   log_separator "─" 56
   local idx=1
   for bk in "${available_backups[@]}"; do
+    local remote_for_bk="${available_backup_remotes[$((idx-1))]}"
     local size_info
-    size_info="$(rclone size "${RCLONE_REMOTE}/${bk}" "${rclone_opts[@]}" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | grep -o '[0-9]*' || echo "")"
+    size_info="$(rclone size "${remote_for_bk}/${bk}" "${rclone_opts[@]}" --json 2>/dev/null | grep -o '"bytes":[0-9]*' | grep -o '[0-9]*' || echo "")"
     local size_str=""
     if [[ -n "${size_info}" ]]; then
       size_str=" ($(human_size "${size_info}"))"
     fi
-    printf "  %2d) %s%s\n" "${idx}" "${bk}" "${size_str}"
-    ((idx++))
+    printf "  %2d) [%s] %s%s\n" "${idx}" "${remote_for_bk}" "${bk}" "${size_str}"
+    ((idx+=1))
   done
   log_separator "─" 56
   echo
 
-  # 用户选择
   local selection=""
-  read -r -p "请选择要恢复的备份编号 [默认: 1 (最新)]: " selection
+  read -r -p "$(lang_pick "请选择要恢复的备份编号" "Select the backup number to restore") [$(prompt_default_label): 1 ($(lang_pick "最新" "latest"))]: " selection
   selection="${selection:-1}"
 
   if ! [[ "${selection}" =~ ^[0-9]+$ ]] || (( selection < 1 || selection > ${#available_backups[@]} )); then
-    log_error "无效的选择: ${selection}"
+    log_error "$(lang_pick "无效的选择" "Invalid selection"): ${selection}"
     return 1
   fi
 
   local selected="${available_backups[$((selection-1))]}"
-  log_info "选择恢复: ${selected}"
+  local selected_remote="${available_backup_remotes[$((selection-1))]}"
+  log_info "$(lang_pick "选择恢复" "Selected for restore"): ${selected} ($(lang_pick "来源" "source"): ${selected_remote})"
 
   # ==================== 第2步: 下载备份 ====================
-  log_step "第2步: 下载备份文件..."
+  log_step "$(lang_pick "第2步: 下载备份文件..." "Step 2: Download backup file...")"
 
   local restore_dir="${BACKUP_ROOT}/restore"
   safe_mkdir "${restore_dir}"
@@ -151,76 +173,75 @@ run_restore() {
   local sum_file="${restore_dir}/${selected}.sha256"
 
   if [[ -f "${local_archive}" ]]; then
-    log_info "本地已存在该备份，跳过下载。"
-    if ! confirm "是否重新下载覆盖？" "n"; then
-      log_info "使用现有文件。"
+    log_info "$(lang_pick "本地已存在该备份，跳过下载。" "The backup already exists locally. Skipping download.")"
+    if ! confirm "$(lang_pick "是否重新下载覆盖？" "Re-download and overwrite it?")" "n"; then
+      log_info "$(lang_pick "使用现有文件。" "Using the existing local file.")"
     else
       rm -f "${local_archive}" "${sum_file}"
     fi
   fi
 
   if [[ ! -f "${local_archive}" ]]; then
-    if log_dry_run "下载 ${selected}"; then :; else
-      rclone copy "${RCLONE_REMOTE}/${selected}" "${restore_dir}/" "${rclone_opts[@]}" --progress 2>&1 || {
-        log_error "下载失败!"
+    if log_dry_run "$(lang_pick "下载" "Download") ${selected} <- ${selected_remote}"; then :; else
+      rclone copy "${selected_remote}/${selected}" "${restore_dir}/" "${rclone_opts[@]}" --progress 2>&1 || {
+        log_error "$(lang_pick "下载失败!" "Download failed!")"
         return 1
       }
-      # 下载校验文件
-      rclone copy "${RCLONE_REMOTE}/${selected}.sha256" "${restore_dir}/" "${rclone_opts[@]}" 2>/dev/null || true
-      log_success "下载完成"
+      rclone copy "${selected_remote}/${selected}.sha256" "${restore_dir}/" "${rclone_opts[@]}" 2>/dev/null || true
+      log_success "$(lang_pick "下载完成" "Download completed")"
     fi
   fi
 
   # ==================== 第3步: 校验 ====================
-  log_step "第3步: 校验文件完整性..."
+  log_step "$(lang_pick "第3步: 校验文件完整性..." "Step 3: Verify file integrity...")"
 
   if [[ -f "${sum_file}" ]]; then
     if verify_checksum "${local_archive}" "${sum_file}"; then
-      log_success "SHA256 校验通过"
+      log_success "$(lang_pick "SHA256 校验通过" "SHA256 verification passed")"
     else
-      log_error "SHA256 校验失败! 文件可能已损坏。"
-      if ! confirm "是否继续恢复（不推荐）？" "n"; then
+      log_error "$(lang_pick "SHA256 校验失败! 文件可能已损坏。" "SHA256 verification failed. The file may be corrupted.")"
+      if ! confirm "$(lang_pick "是否继续恢复（不推荐）？" "Continue restoring anyway? (not recommended)")" "n"; then
         return 1
       fi
     fi
   else
-    log_warn "未找到校验文件，跳过校验。"
+    log_warn "$(lang_pick "未找到校验文件，跳过校验。" "Checksum file not found. Skipping verification.")"
   fi
 
   # ==================== 第4步: 解密 (如果需要) ====================
   local archive_to_extract="${local_archive}"
 
   if [[ "${selected}" == *.enc ]]; then
-    log_step "第4步: 解密备份..."
+      log_step "$(lang_pick "第4步: 解密备份..." "Step 4: Decrypt backup...")"
     if [[ -z "${BACKUP_ENCRYPTION_KEY:-}" ]]; then
-      read -rs -p "请输入解密密码: " BACKUP_ENCRYPTION_KEY
+      read -rs -p "$(lang_pick "请输入解密密码" "Enter decryption password"): " BACKUP_ENCRYPTION_KEY
       echo
     fi
     local decrypted="${local_archive%.enc}"
-    if log_dry_run "解密 ${selected}"; then :; else
+    if log_dry_run "$(lang_pick "解密" "Decrypt") ${selected}"; then :; else
       if decrypt_file "${local_archive}" "${decrypted}" "${BACKUP_ENCRYPTION_KEY}"; then
         archive_to_extract="${decrypted}"
-        log_success "解密成功"
+        log_success "$(lang_pick "解密成功" "Decryption succeeded")"
       else
-        log_error "解密失败! 密码可能不正确。"
+        log_error "$(lang_pick "解密失败! 密码可能不正确。" "Decryption failed. The password may be incorrect.")"
         return 1
       fi
     fi
   fi
 
   # ==================== 第5步: 解压 ====================
-  log_step "第5步: 解压备份..."
+  log_step "$(lang_pick "第5步: 解压备份..." "Step 5: Extract backup...")"
 
   local extract_dir="${restore_dir}/extracted"
   rm -rf "${extract_dir}" 2>/dev/null || true
   safe_mkdir "${extract_dir}"
 
-  if log_dry_run "解压 ${archive_to_extract}"; then :; else
+  if log_dry_run "$(lang_pick "解压" "Extract") ${archive_to_extract}"; then :; else
     _extract_tar_safe "${archive_to_extract}" "${extract_dir}" "主备份包" || {
-      log_error "解压失败!"
+      log_error "$(lang_pick "解压失败!" "Extraction failed!")"
       return 1
     }
-    log_success "解压完成"
+    log_success "$(lang_pick "解压完成" "Extraction completed")"
   fi
 
   # 找到解压后的根目录
@@ -233,7 +254,7 @@ run_restore() {
   # 读取 manifest
   if [[ -f "${backup_data_dir}/manifest.txt" ]]; then
     echo
-    log_info "备份信息:"
+    log_info "$(lang_pick "备份信息" "Backup info"):"
     while IFS='=' read -r key value; do
       echo "  ${key}: ${value}"
     done < "${backup_data_dir}/manifest.txt"
@@ -241,10 +262,10 @@ run_restore() {
   fi
 
   # ==================== 第6步: 确认恢复范围 ====================
-  log_step "第6步: 确认恢复范围..."
+  log_step "$(lang_pick "第6步: 确认恢复范围..." "Step 6: Confirm restore scope...")"
 
   echo
-  echo -e "${_CLR_BOLD}备份包含以下模块:${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "备份包含以下模块" "Backup contains these modules"):${_CLR_NC}"
   local -a restore_modules=()
   for dir in "${backup_data_dir}"/*/; do
     [[ -d "${dir}" ]] || continue
@@ -257,16 +278,16 @@ run_restore() {
   echo
 
   if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
-    if ! confirm "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "y"; then
-      log_warn "用户取消恢复。"
+    if ! confirm "$(lang_pick "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "Confirm restoring the modules above? (back up the current environment first)")" "y"; then
+      log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0
     fi
   else
-    log_info "自动确认模式，跳过交互。"
+    log_info "$(lang_pick "自动确认模式，跳过交互。" "Auto-confirm mode enabled. Skipping prompt.")"
   fi
 
   # ==================== 第7步: 执行恢复 ====================
-  log_step "第7步: 执行恢复..."
+  log_step "$(lang_pick "第7步: 执行恢复..." "Step 7: Run restore...")"
 
   for mod in "${restore_modules[@]}"; do
     local mod_dir="${backup_data_dir}/${mod}"
@@ -303,7 +324,7 @@ run_restore() {
         _restore_custom_paths "${mod_dir}"
         ;;
       *)
-        log_warn "未知模块 ${mod}，跳过。"
+        log_warn "$(lang_pick "未知模块" "Unknown module") ${mod}，$(lang_pick "跳过。" "skipping.")"
         ;;
     esac
   done
@@ -316,20 +337,20 @@ run_restore() {
 
   echo
   log_separator "═" 56
-  log_success "恢复完成!"
-  echo "  📦 恢复自: ${selected}"
-  echo "  ⏱  耗时: ${elapsed}"
+  log_success "$(lang_pick "恢复完成!" "Restore completed!")"
+  echo "  📦 $(lang_pick "恢复自" "Restored from"): ${selected}"
+  echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
   log_separator "═" 56
   echo
 
   summary_render
   notify_restore_result "${selected}" "${elapsed}"
 
-  echo -e "${_CLR_BOLD}${_CLR_YELLOW}建议操作:${_CLR_NC}"
-  echo "  1. 检查所有服务是否正常运行"
-  echo "  2. 验证域名和 SSL 证书"
-  echo "  3. 测试数据库连接"
-  echo "  4. 配置新的定时备份: vpsmagic schedule install"
+  echo -e "${_CLR_BOLD}${_CLR_YELLOW}$(lang_pick "建议操作" "Recommended actions"):${_CLR_NC}"
+  echo "  1. $(lang_pick "检查所有服务是否正常运行" "Check whether all services are running normally")"
+  echo "  2. $(lang_pick "验证域名和 SSL 证书" "Verify domains and SSL certificates")"
+  echo "  3. $(lang_pick "测试数据库连接" "Test database connections")"
+  echo "  4. $(lang_pick "配置新的定时备份" "Configure scheduled backups"): vpsmagic schedule install"
   echo
 }
 
@@ -487,7 +508,7 @@ _restore_docker_standalone() {
 
     log_info "    注意: 独立容器需要根据 ${container_dir}/inspect.json 手动重建"
     log_info "    或参考 ${container_dir}/metadata.env 中的配置"
-    ((manual_count++))
+    ((manual_count+=1))
   done
 
   if (( manual_count > 0 )); then
@@ -637,7 +658,7 @@ _restore_reverse_proxy() {
 
 _restore_database() {
   local mod_dir="$1"
-  log_step "恢复数据库..."
+  log_step "$(lang_pick "恢复数据库..." "Restoring databases...")"
 
   # MySQL
   if [[ -d "${mod_dir}/mysql" ]]; then
@@ -645,8 +666,8 @@ _restore_database() {
       [[ -f "${sql_file}" ]] || continue
       local fname
       fname="$(basename "${sql_file}")"
-      log_info "  MySQL 恢复提示: ${fname}"
-      log_info "    请手动执行: mysql -u root -p < ${sql_file}"
+      log_info "  $(lang_pick "MySQL 恢复提示" "MySQL restore hint"): ${fname}"
+      log_info "    $(lang_pick "请手动执行" "Run manually"): mysql -u root -p < ${sql_file}"
     done
   fi
 
@@ -656,8 +677,8 @@ _restore_database() {
       [[ -f "${sql_file}" ]] || continue
       local fname
       fname="$(basename "${sql_file}")"
-      log_info "  PostgreSQL 恢复提示: ${fname}"
-      log_info "    请手动执行: psql -U postgres < ${sql_file}"
+      log_info "  $(lang_pick "PostgreSQL 恢复提示" "PostgreSQL restore hint"): ${fname}"
+      log_info "    $(lang_pick "请手动执行" "Run manually"): psql -U postgres < ${sql_file}"
     done
   fi
 
@@ -668,8 +689,8 @@ _restore_database() {
         local safe_name
         safe_name="$(echo "${orig_path}" | tr '/' '_' | sed 's/^_//')"
         if [[ -f "${mod_dir}/sqlite/${safe_name}" ]]; then
-          log_info "  恢复 SQLite: ${orig_path}"
-          if ! log_dry_run "恢复 SQLite: ${orig_path}"; then
+          log_info "  $(lang_pick "恢复 SQLite" "Restoring SQLite"): ${orig_path}"
+          if ! log_dry_run "$(lang_pick "恢复 SQLite" "Restore SQLite"): ${orig_path}"; then
             safe_mkdir "$(dirname "${orig_path}")"
             cp -a "${mod_dir}/sqlite/${safe_name}" "${orig_path}" 2>/dev/null || true
           fi
@@ -832,7 +853,7 @@ _restore_user_home() {
     # 还原 dotfiles
     find "${user_dir}" -maxdepth 2 -type f ! -name "user_info.env" ! -name "crontab.bak" | while read -r f; do
       local rel
-      rel="$(realpath --relative-to="${user_dir}" "${f}" 2>/dev/null || echo "")"
+      rel="$(relative_child_path "${user_dir}" "${f}")"
       if [[ -n "${rel}" ]]; then
         local target="${home}/${rel}"
         safe_mkdir "$(dirname "${target}")"
@@ -849,7 +870,7 @@ _restore_user_home() {
 
 _restore_custom_paths() {
   local mod_dir="$1"
-  log_step "恢复自定义路径..."
+  log_step "$(lang_pick "恢复自定义路径..." "Restoring custom paths...")"
 
   if [[ ! -f "${mod_dir}/_path_map.txt" ]]; then
     return 0
@@ -861,9 +882,9 @@ _restore_custom_paths() {
     local archive="${mod_dir}/${safe_name}.tar.gz"
     local file="${mod_dir}/${safe_name}"
 
-    log_info "  恢复: ${orig_path}"
+    log_info "  $(lang_pick "恢复" "Restoring"): ${orig_path}"
 
-    if log_dry_run "恢复自定义路径: ${orig_path}"; then continue; fi
+    if log_dry_run "$(lang_pick "恢复自定义路径" "Restore custom path"): ${orig_path}"; then continue; fi
 
     safe_mkdir "$(dirname "${orig_path}")"
 
@@ -884,10 +905,10 @@ _restore_from_local() {
   local start_ts
   start_ts="$(date +%s)"
 
-  log_banner "VPS Magic Backup — 恢复模式 (本地文件)"
+  log_banner "$(lang_pick "VPS Magic Backup — 恢复模式 (本地文件)" "VPS Magic Backup — Restore Mode (Local File)")"
 
   if [[ ! -f "${local_archive}" ]]; then
-    log_error "指定的本地备份文件不存在: ${local_archive}"
+    log_error "$(lang_pick "指定的本地备份文件不存在" "The specified local backup file does not exist"): ${local_archive}"
     return 1
   fi
 
@@ -895,53 +916,53 @@ _restore_from_local() {
   selected="$(basename "${local_archive}")"
   local sum_file="${local_archive}.sha256"
 
-  log_info "恢复文件: ${selected}"
-  log_info "文件大小: $(human_size "$(get_file_size "${local_archive}")")"
+  log_info "$(lang_pick "恢复文件" "Restore file"): ${selected}"
+  log_info "$(lang_pick "文件大小" "File size"): $(human_size "$(get_file_size "${local_archive}")")"
   echo
 
   # ==================== 校验 ====================
-  log_step "第1步: 校验文件完整性..."
+  log_step "$(lang_pick "第1步: 校验文件完整性..." "Step 1: Verify file integrity...")"
 
   if [[ -f "${sum_file}" ]]; then
     if verify_checksum "${local_archive}" "${sum_file}"; then
-      log_success "SHA256 校验通过"
+      log_success "$(lang_pick "SHA256 校验通过" "SHA256 verification passed")"
     else
-      log_error "SHA256 校验失败! 文件可能已损坏。"
+      log_error "$(lang_pick "SHA256 校验失败! 文件可能已损坏。" "SHA256 verification failed. The file may be corrupted.")"
       if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
-        if ! confirm "是否继续恢复（不推荐）？" "n"; then
+        if ! confirm "$(lang_pick "是否继续恢复（不推荐）？" "Continue restoring anyway? (not recommended)")" "n"; then
           return 1
         fi
       else
-        log_warn "自动模式: 继续恢复"
+        log_warn "$(lang_pick "自动模式: 继续恢复" "Auto mode: continuing restore")"
       fi
     fi
   else
-    log_warn "未找到校验文件，跳过校验。"
+    log_warn "$(lang_pick "未找到校验文件，跳过校验。" "Checksum file not found. Skipping verification.")"
   fi
 
   # ==================== 解密 (如果需要) ====================
   local archive_to_extract="${local_archive}"
 
   if [[ "${selected}" == *.enc ]]; then
-    log_step "第2步: 解密备份..."
+    log_step "$(lang_pick "第2步: 解密备份..." "Step 2: Decrypt backup...")"
     if [[ -z "${BACKUP_ENCRYPTION_KEY:-}" ]]; then
-      read -rs -p "请输入解密密码: " BACKUP_ENCRYPTION_KEY
+      read -rs -p "$(lang_pick "请输入解密密码" "Enter decryption password"): " BACKUP_ENCRYPTION_KEY
       echo
     fi
     local decrypted="${local_archive%.enc}"
     if log_dry_run "解密 ${selected}"; then :; else
       if decrypt_file "${local_archive}" "${decrypted}" "${BACKUP_ENCRYPTION_KEY}"; then
         archive_to_extract="${decrypted}"
-        log_success "解密成功"
+        log_success "$(lang_pick "解密成功" "Decryption succeeded")"
       else
-        log_error "解密失败! 密码可能不正确。"
+        log_error "$(lang_pick "解密失败! 密码可能不正确。" "Decryption failed. The password may be incorrect.")"
         return 1
       fi
     fi
   fi
 
   # ==================== 解压 ====================
-  log_step "第3步: 解压备份..."
+  log_step "$(lang_pick "第3步: 解压备份..." "Step 3: Extract backup...")"
 
   local restore_dir="${BACKUP_ROOT}/restore"
   safe_mkdir "${restore_dir}"
@@ -951,10 +972,10 @@ _restore_from_local() {
 
   if log_dry_run "解压 ${archive_to_extract}"; then :; else
     _extract_tar_safe "${archive_to_extract}" "${extract_dir}" "主备份包" || {
-      log_error "解压失败!"
+      log_error "$(lang_pick "解压失败!" "Extraction failed!")"
       return 1
     }
-    log_success "解压完成"
+    log_success "$(lang_pick "解压完成" "Extraction completed")"
   fi
 
   # 找到解压后的根目录
@@ -967,7 +988,7 @@ _restore_from_local() {
   # 读取 manifest
   if [[ -f "${backup_data_dir}/manifest.txt" ]]; then
     echo
-    log_info "备份信息:"
+    log_info "$(lang_pick "备份信息" "Backup info"):"
     while IFS='=' read -r key value; do
       echo "  ${key}: ${value}"
     done < "${backup_data_dir}/manifest.txt"
@@ -975,10 +996,10 @@ _restore_from_local() {
   fi
 
   # ==================== 确认恢复范围 ====================
-  log_step "第4步: 确认恢复范围..."
+  log_step "$(lang_pick "第4步: 确认恢复范围..." "Step 4: Confirm restore scope...")"
 
   echo
-  echo -e "${_CLR_BOLD}备份包含以下模块:${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "备份包含以下模块" "Backup contains these modules"):${_CLR_NC}"
   local -a restore_modules=()
   for dir in "${backup_data_dir}"/*/; do
     [[ -d "${dir}" ]] || continue
@@ -991,16 +1012,16 @@ _restore_from_local() {
   echo
 
   if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
-    if ! confirm "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "y"; then
-      log_warn "用户取消恢复。"
+    if ! confirm "$(lang_pick "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "Confirm restoring the modules above? (back up the current environment first)")" "y"; then
+      log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0
     fi
   else
-    log_info "自动确认模式，开始恢复。"
+    log_info "$(lang_pick "自动确认模式，开始恢复。" "Auto-confirm mode enabled. Starting restore.")"
   fi
 
   # ==================== 执行恢复 ====================
-  log_step "第5步: 执行恢复..."
+  log_step "$(lang_pick "第5步: 执行恢复..." "Step 5: Run restore...")"
 
   for mod in "${restore_modules[@]}"; do
     local mod_dir="${backup_data_dir}/${mod}"
@@ -1016,7 +1037,7 @@ _restore_from_local() {
       firewall)          _restore_firewall "${mod_dir}" ;;
       user_home)         _restore_user_home "${mod_dir}" ;;
       custom_paths)      _restore_custom_paths "${mod_dir}" ;;
-      *)                 log_warn "未知模块 ${mod}，跳过。" ;;
+      *)                 log_warn "$(lang_pick "未知模块" "Unknown module") ${mod}，$(lang_pick "跳过。" "skipping.")" ;;
     esac
   done
 
@@ -1028,19 +1049,19 @@ _restore_from_local() {
 
   echo
   log_separator "═" 56
-  log_success "恢复完成! (本地文件模式)"
-  echo "  📦 恢复自: ${selected}"
-  echo "  ⏱  耗时: ${elapsed}"
+  log_success "$(lang_pick "恢复完成! (本地文件模式)" "Restore completed! (local file mode)")"
+  echo "  📦 $(lang_pick "恢复自" "Restored from"): ${selected}"
+  echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
   log_separator "═" 56
   echo
 
   summary_render
   notify_restore_result "${selected}" "${elapsed}"
 
-  echo -e "${_CLR_BOLD}${_CLR_YELLOW}建议操作:${_CLR_NC}"
-  echo "  1. 检查所有服务是否正常运行"
-  echo "  2. 验证域名和 SSL 证书"
-  echo "  3. 测试数据库连接"
-  echo "  4. 配置新的定时备份: vpsmagic schedule install"
+  echo -e "${_CLR_BOLD}${_CLR_YELLOW}$(lang_pick "建议操作" "Recommended actions"):${_CLR_NC}"
+  echo "  1. $(lang_pick "检查所有服务是否正常运行" "Check whether all services are running normally")"
+  echo "  2. $(lang_pick "验证域名和 SSL 证书" "Verify domains and SSL certificates")"
+  echo "  3. $(lang_pick "测试数据库连接" "Test database connections")"
+  echo "  4. $(lang_pick "配置新的定时备份" "Configure scheduled backups"): vpsmagic schedule install"
   echo
 }

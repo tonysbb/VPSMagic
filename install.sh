@@ -23,11 +23,114 @@ NC='\033[0m'
 
 INSTALL_DIR="/opt/vpsmagic"
 BIN_LINK="/usr/local/bin/vpsmagic"
+RCLONE_MIN_VERSION="1.64.0"
+RSYNC_MIN_VERSION="3.2.3"
+INSTALL_LANG="${INSTALL_LANG:-${VPSMAGIC_LANG:-${UI_LANG:-${LANG:-zh}}}}"
+
+normalize_install_lang() {
+  local raw="${1:-}"
+  raw="$(printf '%s' "${raw}" | tr '[:upper:]' '[:lower:]')"
+  raw="${raw%%.*}"
+  raw="${raw%%_*}"
+  raw="${raw%%-*}"
+  case "${raw}" in
+    en) echo "en" ;;
+    *) echo "zh" ;;
+  esac
+}
+
+set_install_lang() {
+  INSTALL_LANG="$(normalize_install_lang "${1:-${INSTALL_LANG}}")"
+}
+
+is_install_lang_en() {
+  [[ "${INSTALL_LANG}" == "en" ]]
+}
+
+lang_pick_install() {
+  local zh_text="${1:-}"
+  local en_text="${2:-}"
+  if is_install_lang_en; then
+    printf '%s' "${en_text}"
+  else
+    printf '%s' "${zh_text}"
+  fi
+}
 
 info()    { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+
+confirm() {
+  local prompt="${1:-确认继续？}"
+  local default="${2:-y}"
+  local answer=""
+  local hint="[y/N]"
+
+  if [[ "${default}" =~ ^[Yy]$ ]]; then
+    hint="[Y/n]"
+  fi
+
+  read -r -p "${prompt} ${hint}: " answer
+  answer="${answer:-${default}}"
+  [[ "${answer}" =~ ^[Yy]$ ]]
+}
+
+parse_install_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --lang)
+        [[ $# -ge 2 ]] || { error "--lang 需要一个参数"; exit 1; }
+        set_install_lang "$2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+}
+
+normalize_version() {
+  local version="${1:-}"
+  version="${version#v}"
+  version="${version%% *}"
+  version="${version%%-*}"
+  printf '%s' "${version}"
+}
+
+version_ge() {
+  local current
+  local required
+  current="$(normalize_version "${1:-0}")"
+  required="$(normalize_version "${2:-0}")"
+
+  local IFS=.
+  local -a current_parts=(${current})
+  local -a required_parts=(${required})
+  local max_len="${#current_parts[@]}"
+  if (( ${#required_parts[@]} > max_len )); then
+    max_len="${#required_parts[@]}"
+  fi
+
+  local i
+  for (( i=0; i<max_len; i++ )); do
+    local current_num="${current_parts[i]:-0}"
+    local required_num="${required_parts[i]:-0}"
+    (( 10#${current_num} > 10#${required_num} )) && return 0
+    (( 10#${current_num} < 10#${required_num} )) && return 1
+  done
+  return 0
+}
+
+detect_rclone_version() {
+  rclone version 2>/dev/null | awk 'NR==1 {print $2}'
+}
+
+detect_rsync_version() {
+  rsync --version 2>/dev/null | awk 'NR==1 {print $3}'
+}
 
 # ---------- 检测操作系统 ----------
 detect_os() {
@@ -68,19 +171,72 @@ install_package() {
   esac
 }
 
-install_rclone() {
-  if command -v rclone >/dev/null 2>&1; then
-    success "rclone 已安装: $(rclone version 2>/dev/null | head -1)"
+ensure_minimum_version() {
+  local name="$1"
+  local current_version="$2"
+  local minimum_version="$3"
+
+  if version_ge "${current_version}" "${minimum_version}"; then
+    success "${name} 版本满足要求: ${current_version} (>= ${minimum_version})"
     return 0
   fi
 
-  info "安装 rclone..."
+  warn "${name} 版本偏旧: ${current_version} (< ${minimum_version})"
+  return 1
+}
+
+install_rclone() {
+  if command -v rclone >/dev/null 2>&1; then
+    local current_version
+    current_version="$(detect_rclone_version)"
+    if ensure_minimum_version "rclone" "${current_version}" "${RCLONE_MIN_VERSION}"; then
+      return 0
+    fi
+
+      if ! confirm "$(lang_pick_install "是否使用 rclone 官方安装脚本升级？" "Upgrade with the official rclone install script?")" "y"; then
+        warn "$(lang_pick_install "保留当前 rclone 版本。" "Keeping the current rclone version.")"
+        return 0
+      fi
+  fi
+
+  info "通过 rclone 官方安装脚本安装/升级 rclone..."
   if curl -sSL https://rclone.org/install.sh | bash 2>/dev/null; then
-    success "rclone 安装成功"
+    local installed_version
+    installed_version="$(detect_rclone_version)"
+    success "rclone 安装成功: ${installed_version}"
   else
-    error "rclone 自动安装失败。"
-    echo "  请手动安装: https://rclone.org/install.sh"
+    error "$(lang_pick_install "rclone 自动安装失败。" "rclone automatic installation failed.")"
+    echo "  $(lang_pick_install "请手动安装" "Please install manually"): https://rclone.org/install.sh"
     return 1
+  fi
+}
+
+install_rsync() {
+  if command -v rsync >/dev/null 2>&1; then
+    local current_version
+    current_version="$(detect_rsync_version)"
+    if ensure_minimum_version "rsync" "${current_version}" "${RSYNC_MIN_VERSION}"; then
+      return 0
+    fi
+
+      if ! confirm "$(lang_pick_install "是否尝试通过系统仓库升级 rsync？" "Try upgrading rsync from the system repository?")" "y"; then
+        warn "$(lang_pick_install "保留当前 rsync 版本。" "Keeping the current rsync version.")"
+        return 0
+      fi
+    else
+    if ! confirm "$(lang_pick_install "是否安装 rsync（推荐，用于增量同步与迁移提速）？" "Install rsync (recommended for incremental sync and faster migration)?")" "y"; then
+      warn "$(lang_pick_install "跳过 rsync 安装。迁移时将回退为 scp。" "Skipping rsync installation. Migration will fall back to scp.")"
+      return 0
+    fi
+  fi
+
+  info "通过系统官方仓库安装/升级 rsync..."
+  install_package "rsync" || return 1
+
+  if command -v rsync >/dev/null 2>&1; then
+    success "$(lang_pick_install "rsync 已安装" "rsync installed"): $(detect_rsync_version)"
+  else
+    warn "$(lang_pick_install "rsync 安装后仍不可用，请手动检查。" "rsync is still unavailable after installation. Please check manually.")"
   fi
 }
 
@@ -91,14 +247,14 @@ install_docker() {
   fi
 
   echo
-  echo -e "${BOLD}Docker 未安装。${NC}"
-  echo "  Docker 不是必须的，但如果你的 VPS 使用 Docker 部署服务，建议安装。"
+  echo -e "${BOLD}$(lang_pick_install "Docker 未安装。" "Docker is not installed.")${NC}"
+  echo "  $(lang_pick_install "Docker 不是必须的，但如果你的 VPS 使用 Docker 部署服务，建议安装。" "Docker is optional, but recommended if your VPS runs services with Docker.")"
   echo
 
   local answer=""
-  read -r -p "是否安装 Docker？[y/N]: " answer
+  read -r -p "$(lang_pick_install "是否安装 Docker？" "Install Docker?") [y/N]: " answer
   if [[ ! "${answer}" =~ ^[Yy]$ ]]; then
-    warn "跳过 Docker 安装。"
+    warn "$(lang_pick_install "跳过 Docker 安装。" "Skipping Docker installation.")"
     return 0
   fi
 
@@ -106,37 +262,46 @@ install_docker() {
   if curl -sSL https://get.docker.com | sh 2>/dev/null; then
     systemctl enable docker 2>/dev/null || true
     systemctl start docker 2>/dev/null || true
-    success "Docker 安装成功"
+    success "$(lang_pick_install "Docker 安装成功" "Docker installed successfully")"
   else
-    error "Docker 自动安装失败。"
-    echo "  请手动安装: https://docs.docker.com/engine/install/"
+    error "$(lang_pick_install "Docker 自动安装失败。" "Docker automatic installation failed.")"
+    echo "  $(lang_pick_install "请手动安装" "Please install manually"): https://docs.docker.com/engine/install/"
   fi
 }
 
 # ---------- 主安装流程 ----------
 main() {
+  parse_install_args "$@"
+  set_install_lang "${INSTALL_LANG}"
   echo
   echo -e "${BOLD}${CYAN}"
   echo "  ╔══════════════════════════════════════════════════╗"
-  echo "  ║          VPS Magic Backup — 安装向导             ║"
+  if is_install_lang_en; then
+    echo "  ║      VPS Magic Backup — Installation Wizard     ║"
+  else
+    echo "  ║          VPS Magic Backup — 安装向导             ║"
+  fi
   echo "  ╚══════════════════════════════════════════════════╝"
   echo -e "${NC}"
 
   # 检查 root
   if [[ "$(id -u)" -ne 0 ]]; then
-    error "请以 root 用户运行此脚本: sudo bash install.sh"
+    error "$(lang_pick_install "请以 root 用户运行此脚本: sudo bash install.sh" "Please run this script as root: sudo bash install.sh")"
     exit 1
   fi
 
   local OS
   OS="$(detect_os)"
-  info "检测操作系统: ${OS}"
+  info "$(lang_pick_install "检测操作系统" "Detected OS"): ${OS}"
+  if [[ "${OS}" == "alpine" ]]; then
+    info "$(lang_pick_install "检测到 Alpine，目标是保证 Bash 模式下兼容运行。" "Alpine detected. Target mode is Bash-compatible execution.")"
+  fi
 
   # ---- 第1步: 安装基础依赖 ----
   echo
-  echo -e "${BOLD}第1步: 检查基础依赖${NC}"
+  echo -e "${BOLD}$(lang_pick_install "第1步: 检查基础依赖" "Step 1: Check base dependencies")${NC}"
 
-  local base_deps=("curl" "tar" "gzip")
+  local base_deps=("bash" "curl" "tar" "gzip")
   for dep in "${base_deps[@]}"; do
     if command -v "${dep}" >/dev/null 2>&1; then
       success "${dep} ✓"
@@ -152,17 +317,22 @@ main() {
 
   # ---- 第2步: 安装 rclone ----
   echo
-  echo -e "${BOLD}第2步: 安装 rclone${NC}"
+  echo -e "${BOLD}$(lang_pick_install "第2步: 安装 rclone" "Step 2: Install rclone")${NC}"
   install_rclone
 
-  # ---- 第3步: 安装 Docker (可选) ----
+  # ---- 第3步: 安装 rsync (推荐) ----
   echo
-  echo -e "${BOLD}第3步: Docker (可选)${NC}"
+  echo -e "${BOLD}$(lang_pick_install "第3步: 安装 rsync (推荐)" "Step 3: Install rsync (recommended)")${NC}"
+  install_rsync
+
+  # ---- 第4步: 安装 Docker (可选) ----
+  echo
+  echo -e "${BOLD}$(lang_pick_install "第4步: Docker (可选)" "Step 4: Docker (optional)")${NC}"
   install_docker
 
-  # ---- 第4步: 安装 VPSMagic ----
+  # ---- 第5步: 安装 VPSMagic ----
   echo
-  echo -e "${BOLD}第4步: 安装 VPS Magic Backup${NC}"
+  echo -e "${BOLD}$(lang_pick_install "第5步: 安装 VPS Magic Backup" "Step 5: Install VPS Magic Backup")${NC}"
 
   # 判断是从 Git 克隆还是本地安装
   local source_dir=""
@@ -198,55 +368,69 @@ main() {
   chmod +x "${INSTALL_DIR}/vpsmagic.sh"
   chmod +x "${INSTALL_DIR}/install.sh"
 
-  # 创建 symlink
-  ln -sf "${INSTALL_DIR}/vpsmagic.sh" "${BIN_LINK}"
+  # 创建启动包装器，避免通过 symlink 启动时的脚本目录解析问题
+  cat > "${BIN_LINK}" <<EOF
+#!/usr/bin/env bash
+exec "${INSTALL_DIR}/vpsmagic.sh" "$@"
+EOF
+  chmod +x "${BIN_LINK}"
   success "已创建命令: ${BIN_LINK}"
 
   # 创建备份目录
   mkdir -p /opt/vpsmagic/backups
   chmod 700 /opt/vpsmagic/backups
 
-  # ---- 第5步: 初始化配置 ----
+  # ---- 第6步: 初始化配置 ----
   echo
-  echo -e "${BOLD}第5步: 配置${NC}"
+  echo -e "${BOLD}$(lang_pick_install "第6步: 配置" "Step 6: Configuration")${NC}"
 
   if [[ ! -f "${INSTALL_DIR}/config.env" ]]; then
     local answer=""
-    read -r -p "是否现在创建配置文件？[Y/n]: " answer
+    read -r -p "$(lang_pick_install "是否现在创建配置文件？" "Create the config file now?") [Y/n]: " answer
     answer="${answer:-y}"
     if [[ "${answer}" =~ ^[Yy]$ ]]; then
-      bash "${INSTALL_DIR}/vpsmagic.sh" init
+      bash "${INSTALL_DIR}/vpsmagic.sh" init --lang "${INSTALL_LANG}"
     else
       cp "${INSTALL_DIR}/config.example.env" "${INSTALL_DIR}/config.env"
       chmod 600 "${INSTALL_DIR}/config.env"
-      warn "已复制配置模板到 ${INSTALL_DIR}/config.env，请手动编辑。"
+      warn "$(lang_pick_install "已复制配置模板到" "Copied the config template to") ${INSTALL_DIR}/config.env, $(lang_pick_install "请手动编辑。" "please edit it manually.")"
     fi
   else
-    info "配置文件已存在: ${INSTALL_DIR}/config.env"
+    info "$(lang_pick_install "配置文件已存在" "Config file already exists"): ${INSTALL_DIR}/config.env"
   fi
 
   # ---- 完成 ----
   echo
   echo -e "${GREEN}${BOLD}"
   echo "  ╔══════════════════════════════════════════════════╗"
-  echo "  ║              安装完成! 🎉                       ║"
+  if is_install_lang_en; then
+    echo "  ║            Installation Complete!               ║"
+  else
+    echo "  ║              安装完成! 🎉                       ║"
+  fi
   echo "  ╚══════════════════════════════════════════════════╝"
   echo -e "${NC}"
   echo
-  echo "  快速开始:"
-  echo "    1. 配置 rclone 远端:  rclone config"
-  echo "    2. 编辑配置文件:      vim ${INSTALL_DIR}/config.env"
-  echo "    3. 测试备份 (模拟):   vpsmagic backup --dry-run"
-  echo "    4. 执行真实备份:      vpsmagic backup"
-  echo "    5. 安装定时备份:      vpsmagic schedule install"
+  echo "  $(lang_pick_install "快速开始" "Quick start"):"
+  echo "    1. $(lang_pick_install "配置 rclone 远端" "Configure rclone remote"):  rclone config"
+  echo "       $(lang_pick_install "Oracle Object Storage 可在 rclone 中选择 S3 兼容后端进行配置" "Oracle Object Storage can be configured in rclone as an S3-compatible backend")"
+  echo "    2. $(lang_pick_install "编辑配置文件" "Edit config file"):      vim ${INSTALL_DIR}/config.env"
+  echo "    3. $(lang_pick_install "测试备份 (模拟)" "Test backup (dry-run)"):   vpsmagic backup --dry-run --dest local"
+  echo "    4. $(lang_pick_install "执行远端备份" "Run remote backup"):      vpsmagic backup --dest remote"
+  echo "    5. $(lang_pick_install "安装定时备份" "Install schedule"):      vpsmagic schedule install"
+  echo "    6. $(lang_pick_install "迁移/预同步提速" "Migration / pre-sync acceleration"):   rsync --version && vpsmagic migrate root@new-vps"
   echo
-  echo "  恢复命令 (在新 VPS 上):"
+  echo "  $(lang_pick_install "恢复命令 (在新 VPS 上)" "Restore command (on the new VPS)"):"
   echo "    vpsmagic restore"
   echo
-  echo "  在线迁移 (从源 VPS 执行):"
+  echo "  $(lang_pick_install "Oracle Object Storage 提示" "Oracle Object Storage notes"):"
+  echo "    - $(lang_pick_install "建议直接使用 rclone remote 访问对象存储，不要默认 mount 后再备份" "Use an rclone remote directly instead of mounting object storage by default")"
+  echo "    - $(lang_pick_install "配好 remote 后，将其写入 BACKUP_TARGETS 或执行 vpsmagic backup --remote <remote:path>" "After configuring the remote, put it into BACKUP_TARGETS or run vpsmagic backup --remote <remote:path>")"
+  echo
+  echo "  $(lang_pick_install "在线迁移 (从源 VPS 执行)" "Online migration (run on the source VPS)"):"
   echo "    vpsmagic migrate root@new-vps"
   echo
-  echo "  更多帮助:  vpsmagic help"
+  echo "  $(lang_pick_install "更多帮助" "More help"):  vpsmagic help"
   echo
 }
 

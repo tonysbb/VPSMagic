@@ -10,7 +10,7 @@ collect_databases() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/database"
 
-  log_step "采集数据库备份..."
+  log_step "$(lang_pick "采集数据库备份..." "Collecting database backups...")"
 
   local found=0
 
@@ -25,26 +25,26 @@ collect_databases() {
       parse_list "${DB_MYSQL_CONTAINERS}" containers
       for cname in "${containers[@]}"; do
         if docker ps -q --filter "name=${cname}" 2>/dev/null | grep -q .; then
-          log_info "  导出 MySQL 容器: ${cname}"
+          log_info "  $(lang_pick "导出 MySQL 容器" "Exporting MySQL container"): ${cname}"
           safe_mkdir "${mysql_dir}"
           if ! log_dry_run "docker exec ${cname} mysqldump --all-databases"; then
             local out_file="${mysql_dir}/${cname}_all.sql"
             docker exec "${cname}" mysqldump --all-databases --single-transaction \
               -u root -p"${DB_MYSQL_HOST_PASS:-root}" 2>/dev/null \
               > "${out_file}" || {
-              log_warn "    MySQL 容器 ${cname} 导出失败"
+              log_warn "    $(lang_pick "MySQL 容器导出失败" "MySQL container export failed"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
               continue
             }
             if [[ -s "${out_file}" ]]; then
-              ((dumped++))
+              ((dumped+=1))
             else
-              log_warn "    MySQL 容器 ${cname} 导出为空，已忽略"
+              log_warn "    $(lang_pick "MySQL 容器导出为空，已忽略" "MySQL container export is empty, ignored"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
             fi
           fi
         else
-          log_warn "  MySQL 容器不存在或未运行: ${cname}"
+          log_warn "  $(lang_pick "MySQL 容器不存在或未运行" "MySQL container not found or not running"): ${cname}"
         fi
       done
     fi
@@ -72,7 +72,7 @@ collect_databases() {
         if [[ -n "${DB_MYSQL_CONTAINERS:-}" ]] && echo "${DB_MYSQL_CONTAINERS}" | grep -qw "${cname}"; then
           continue
         fi
-        log_info "  自动发现 MySQL 容器: ${cname}"
+        log_info "  $(lang_pick "自动发现 MySQL 容器" "Auto-detected MySQL container"): ${cname}"
         safe_mkdir "${mysql_dir}"
         if ! log_dry_run "docker exec ${cname} mysqldump --all-databases"; then
           local out_file="${mysql_dir}/${cname}_all.sql"
@@ -83,23 +83,23 @@ collect_databases() {
             docker exec "${cname}" mysqldump --all-databases --single-transaction \
               -u root -p"${mysql_pass}" 2>/dev/null \
               > "${out_file}" || {
-              log_warn "    MySQL 容器 ${cname} 导出失败（自动探测）"
+              log_warn "    $(lang_pick "MySQL 容器导出失败（自动探测）" "MySQL container export failed (auto-detected)"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
               continue
             }
           else
             docker exec "${cname}" mysqldump --all-databases --single-transaction \
               -u root 2>/dev/null > "${out_file}" || {
-              log_warn "    MySQL 容器 ${cname} 导出失败（未检测到 root 密码）"
+              log_warn "    $(lang_pick "MySQL 容器导出失败（未检测到 root 密码）" "MySQL container export failed (root password not detected)"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
               continue
             }
           fi
 
           if [[ -s "${out_file}" ]]; then
-            ((dumped++))
+            ((dumped+=1))
           else
-            log_warn "    MySQL 容器 ${cname} 导出为空，已忽略"
+            log_warn "    $(lang_pick "MySQL 容器导出为空，已忽略" "MySQL container export is empty, ignored"): ${cname}"
             rm -f "${out_file}" 2>/dev/null || true
           fi
         fi
@@ -108,7 +108,7 @@ collect_databases() {
 
     # 主机直装 MySQL
     if command -v mysqldump >/dev/null 2>&1 && [[ -n "${DB_MYSQL_HOST_USER:-}" ]]; then
-      log_info "  导出主机 MySQL..."
+      log_info "  $(lang_pick "导出主机 MySQL..." "Exporting host MySQL...")"
       safe_mkdir "${mysql_dir}"
       if ! log_dry_run "mysqldump --all-databases"; then
         local out_file="${mysql_dir}/host_all.sql"
@@ -116,18 +116,18 @@ collect_databases() {
           -u "${DB_MYSQL_HOST_USER}" \
           ${DB_MYSQL_HOST_PASS:+-p"${DB_MYSQL_HOST_PASS}"} \
           2>/dev/null > "${out_file}" || {
-          log_warn "    主机 MySQL 导出失败"
+          log_warn "    $(lang_pick "主机 MySQL 导出失败" "Host MySQL export failed")"
           rm -f "${out_file}" 2>/dev/null || true
         }
         if [[ -s "${out_file}" ]]; then
-          ((dumped++))
+          ((dumped+=1))
         fi
       fi
     fi
 
     if (( dumped > 0 )); then
       found=1
-      summary_add "ok" "MySQL" "${dumped} 个数据库导出"
+      summary_add "ok" "MySQL" "$(lang_pick "${dumped} 个数据库导出" "${dumped} database exports")"
     fi
   }
 
@@ -142,20 +142,20 @@ collect_databases() {
       parse_list "${DB_POSTGRES_CONTAINERS}" containers
       for cname in "${containers[@]}"; do
         if docker ps -q --filter "name=${cname}" 2>/dev/null | grep -q .; then
-          log_info "  导出 PostgreSQL 容器: ${cname}"
+          log_info "  $(lang_pick "导出 PostgreSQL 容器" "Exporting PostgreSQL container"): ${cname}"
           safe_mkdir "${pg_dir}"
           if ! log_dry_run "docker exec ${cname} pg_dumpall"; then
             local out_file="${pg_dir}/${cname}_all.sql"
             docker exec "${cname}" pg_dumpall -U postgres 2>/dev/null \
               > "${out_file}" || {
-              log_warn "    PostgreSQL 容器 ${cname} 导出失败"
+              log_warn "    $(lang_pick "PostgreSQL 容器导出失败" "PostgreSQL container export failed"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
               continue
             }
             if [[ -s "${out_file}" ]]; then
-              ((dumped++))
+              ((dumped+=1))
             else
-              log_warn "    PostgreSQL 容器 ${cname} 导出为空，已忽略"
+              log_warn "    $(lang_pick "PostgreSQL 容器导出为空，已忽略" "PostgreSQL container export is empty, ignored"): ${cname}"
               rm -f "${out_file}" 2>/dev/null || true
             fi
           fi
@@ -183,20 +183,20 @@ collect_databases() {
         if [[ -n "${DB_POSTGRES_CONTAINERS:-}" ]] && echo "${DB_POSTGRES_CONTAINERS}" | grep -qw "${cname}"; then
           continue
         fi
-        log_info "  自动发现 PostgreSQL 容器: ${cname}"
+        log_info "  $(lang_pick "自动发现 PostgreSQL 容器" "Auto-detected PostgreSQL container"): ${cname}"
         safe_mkdir "${pg_dir}"
         if ! log_dry_run "docker exec ${cname} pg_dumpall"; then
           local out_file="${pg_dir}/${cname}_all.sql"
           docker exec "${cname}" pg_dumpall -U postgres 2>/dev/null \
             > "${out_file}" || {
-            log_warn "    PostgreSQL 容器 ${cname} 导出失败（自动探测）"
+            log_warn "    $(lang_pick "PostgreSQL 容器导出失败（自动探测）" "PostgreSQL container export failed (auto-detected)"): ${cname}"
             rm -f "${out_file}" 2>/dev/null || true
             continue
           }
           if [[ -s "${out_file}" ]]; then
-            ((dumped++))
+            ((dumped+=1))
           else
-            log_warn "    PostgreSQL 容器 ${cname} 导出为空，已忽略"
+            log_warn "    $(lang_pick "PostgreSQL 容器导出为空，已忽略" "PostgreSQL container export is empty, ignored"): ${cname}"
             rm -f "${out_file}" 2>/dev/null || true
           fi
         fi
@@ -205,23 +205,23 @@ collect_databases() {
 
     # 主机直装 PostgreSQL
     if command -v pg_dumpall >/dev/null 2>&1; then
-      log_info "  导出主机 PostgreSQL..."
+      log_info "  $(lang_pick "导出主机 PostgreSQL..." "Exporting host PostgreSQL...")"
       safe_mkdir "${pg_dir}"
       if ! log_dry_run "pg_dumpall"; then
         local out_file="${pg_dir}/host_all.sql"
         sudo -u postgres pg_dumpall 2>/dev/null > "${out_file}" || {
-          log_warn "    主机 PostgreSQL 导出失败"
+          log_warn "    $(lang_pick "主机 PostgreSQL 导出失败" "Host PostgreSQL export failed")"
           rm -f "${out_file}" 2>/dev/null || true
         }
         if [[ -s "${out_file}" ]]; then
-          ((dumped++))
+          ((dumped+=1))
         fi
       fi
     fi
 
     if (( dumped > 0 )); then
       found=1
-      summary_add "ok" "PostgreSQL" "${dumped} 个数据库导出"
+      summary_add "ok" "PostgreSQL" "$(lang_pick "${dumped} 个数据库导出" "${dumped} database exports")"
     fi
   }
 
@@ -238,33 +238,33 @@ collect_databases() {
 
     for db_path in "${paths[@]}"; do
       if [[ ! -f "${db_path}" ]]; then
-        log_warn "  SQLite 文件不存在: ${db_path}"
+        log_warn "  $(lang_pick "SQLite 文件不存在" "SQLite file does not exist"): ${db_path}"
         continue
       fi
-      log_info "  备份 SQLite: ${db_path}"
+      log_info "  $(lang_pick "备份 SQLite" "Backing up SQLite"): ${db_path}"
       safe_mkdir "${sqlite_dir}"
 
-      if ! log_dry_run "备份 SQLite: ${db_path}"; then
+      if ! log_dry_run "$(lang_pick "备份 SQLite" "Backup SQLite"): ${db_path}"; then
         local safe_name
         safe_name="$(echo "${db_path}" | tr '/' '_' | sed 's/^_//')"
         if command -v sqlite3 >/dev/null 2>&1; then
           sqlite3 "${db_path}" ".backup '${sqlite_dir}/${safe_name}'" 2>/dev/null || {
             # 回退到直接复制
             cp -a "${db_path}" "${sqlite_dir}/${safe_name}" 2>/dev/null
-            log_warn "    sqlite3 .backup 失败，已直接复制。"
+            log_warn "    $(lang_pick "sqlite3 .backup 失败，已直接复制。" "sqlite3 .backup failed, copied directly instead.")"
           }
         else
           cp -a "${db_path}" "${sqlite_dir}/${safe_name}" 2>/dev/null
         fi
         # 记录原始路径
         echo "${db_path}" >> "${sqlite_dir}/_path_map.txt"
-        ((dumped++))
+        ((dumped+=1))
       fi
     done
 
     if (( dumped > 0 )); then
       found=1
-      summary_add "ok" "SQLite" "${dumped} 个数据库"
+      summary_add "ok" "SQLite" "$(lang_pick "${dumped} 个数据库" "${dumped} databases")"
     fi
   }
 
@@ -273,7 +273,7 @@ collect_databases() {
   _collect_sqlite
 
   if (( found == 0 )); then
-    log_info "未发现需要备份的数据库。"
+    log_info "$(lang_pick "未发现需要备份的数据库。" "No databases found for backup.")"
     summary_add "skip" "数据库" "未发现"
   fi
 }

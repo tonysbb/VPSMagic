@@ -21,33 +21,43 @@ collect_docker_compose() {
   # 探测 Compose 项目
   local -a projects=()
   if [[ "${COMPOSE_PROJECTS}" == "auto" ]]; then
-    log_info "自动探测运行中的 Docker Compose 项目..."
-    # 方法1: docker compose ls (新版)
-    if docker compose ls --format json >/dev/null 2>&1; then
-      while IFS= read -r line; do
-        local proj_dir
-        proj_dir="$(echo "${line}" | grep -o '"ConfigFiles":"[^"]*"' | head -1 | sed 's/"ConfigFiles":"//;s/"//' | xargs dirname 2>/dev/null)"
-        if [[ -n "${proj_dir}" && -d "${proj_dir}" ]]; then
-          projects+=("${proj_dir}")
-        fi
-      done < <(docker compose ls --format json 2>/dev/null)
+    log_info "自动探测 Docker Compose 项目..."
+
+    # 方法1: docker compose ls (优先运行中的项目，也兼容多项目 JSON 输出)
+    local compose_ls_json=""
+    compose_ls_json="$(docker compose ls --format json 2>/dev/null || true)"
+    if [[ -n "${compose_ls_json}" ]]; then
+      while IFS= read -r config_entry; do
+        local config_files
+        config_files="$(echo "${config_entry}" | sed 's/^"ConfigFiles":"//; s/"$//')"
+        IFS=',' read -r -a _config_items <<< "${config_files}"
+        local cfg_file=""
+        for cfg_file in "${_config_items[@]}"; do
+          cfg_file="$(echo "${cfg_file}" | xargs)"
+          [[ -z "${cfg_file}" ]] && continue
+          local proj_dir
+          proj_dir="$(dirname "${cfg_file}")"
+          if [[ -d "${proj_dir}" ]] && ! in_array "${proj_dir}" "${projects[@]}"; then
+            projects+=("${proj_dir}")
+          fi
+        done
+      done < <(printf '%s' "${compose_ls_json}" | grep -o '"ConfigFiles":"[^"]*"' || true)
     fi
 
-    # 方法2: 查找常见路径下的 docker-compose.yml
-    if [[ ${#projects[@]} -eq 0 ]]; then
-      local search_dirs=("/opt" "/srv" "/home" "/root" "/var/docker")
-      for sdir in "${search_dirs[@]}"; do
-        if [[ -d "${sdir}" ]]; then
-          while IFS= read -r f; do
-            local proj_d
-            proj_d="$(dirname "${f}")"
-            if ! in_array "${proj_d}" "${projects[@]}"; then
-              projects+=("${proj_d}")
-            fi
-          done < <(find "${sdir}" -maxdepth 4 -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" 2>/dev/null)
-        fi
-      done
-    fi
+    # 方法2: 查找常见路径下的 compose 文件，补足未运行或 ls 未列出的项目
+    local search_dirs=("/opt" "/srv" "/home" "/root" "/var/docker")
+    local sdir=""
+    for sdir in "${search_dirs[@]}"; do
+      if [[ -d "${sdir}" ]]; then
+        while IFS= read -r f; do
+          local proj_d
+          proj_d="$(dirname "${f}")"
+          if ! in_array "${proj_d}" "${projects[@]}"; then
+            projects+=("${proj_d}")
+          fi
+        done < <(find "${sdir}" -maxdepth 4 \( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" \) 2>/dev/null)
+      fi
+    done
   else
     parse_list "${COMPOSE_PROJECTS}" projects
   fi
@@ -93,7 +103,7 @@ collect_docker_compose() {
     fi
 
     if log_dry_run "备份 Docker Compose 项目: ${proj_path}"; then
-      ((count++))
+      ((count+=1))
       continue
     fi
 
@@ -165,8 +175,13 @@ collect_docker_compose() {
     {
       echo "# 项目目录权限快照 (恢复时用于修复属主和权限)"
       echo "# 格式: 权限 属主:属组 路径"
-      find "${proj_path}" -maxdepth 4 -printf '%m %u:%g %p\n' 2>/dev/null || \
-        find "${proj_path}" -maxdepth 4 -exec stat -c '%a %U:%G %n' {} \; 2>/dev/null || true
+      while IFS= read -r snap_path; do
+        local perms owner_group
+        perms="$(get_file_mode "${snap_path}")"
+        owner_group="$(get_file_owner_group "${snap_path}")"
+        [[ "${perms}" == "unknown" || "${owner_group}" == "unknown:unknown" ]] && continue
+        printf '%s %s %s\n' "${perms}" "${owner_group}" "${snap_path}"
+      done < <(find "${proj_path}" -maxdepth 4 -print 2>/dev/null || true)
     } > "${perms_file}" 2>/dev/null
 
     # 备份项目目录下所有非数据文件 (yaml/conf/sh/py/json/toml/env 等配置文件)
@@ -184,7 +199,7 @@ collect_docker_compose() {
       safe_copy "${cfg_file}" "${cfg_dst}" 2>/dev/null
     done
 
-    ((count++))
+    ((count+=1))
   done
 
   log_success "Docker Compose: 已备份 ${count} 个项目"

@@ -42,7 +42,7 @@ collect_user_home() {
     log_info "  备份用户目录: ${username} (${home_dir})"
 
     if log_dry_run "备份用户目录: ${home_dir}"; then
-      ((count++))
+      ((count+=1))
       continue
     fi
 
@@ -96,7 +96,7 @@ collect_user_home() {
       echo "GROUPS=$(id -Gn "${username}" 2>/dev/null || echo "unknown")"
     } > "${user_dir}/user_info.env"
 
-    ((count++))
+    ((count+=1))
   done
 
   if (( count > 0 )); then

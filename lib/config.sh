@@ -7,7 +7,7 @@
 _VPSMAGIC_CONFIG_LOADED=1
 
 # ---------- 默认值 ----------
-VPSMAGIC_VERSION="1.0.1"
+VPSMAGIC_VERSION="1.0.2"
 VPSMAGIC_HOME="${VPSMAGIC_HOME:-/opt/vpsmagic}"
 
 # 备份
@@ -16,8 +16,11 @@ BACKUP_KEEP_LOCAL="${BACKUP_KEEP_LOCAL:-3}"
 BACKUP_KEEP_REMOTE="${BACKUP_KEEP_REMOTE:-30}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-vpsmagic}"
 BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
+BACKUP_DESTINATION="${BACKUP_DESTINATION:-remote}"
+BACKUP_REMOTE_OVERRIDE="${BACKUP_REMOTE_OVERRIDE:-}"
 
 # rclone
+BACKUP_TARGETS="${BACKUP_TARGETS:-}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 RCLONE_CONF="${RCLONE_CONF:-}"
 RCLONE_BW_LIMIT="${RCLONE_BW_LIMIT:-}"
@@ -54,6 +57,7 @@ DB_SQLITE_PATHS="${DB_SQLITE_PATHS:-}"
 
 # 日志
 LOG_FILE="${LOG_FILE:-/var/log/vpsmagic.log}"
+UI_LANG="${UI_LANG:-}"
 
 # 调度
 SCHEDULE_CRON="${SCHEDULE_CRON:-0 3 * * *}"
@@ -70,14 +74,14 @@ MIGRATE_AUTO_CONFIRM="${MIGRATE_AUTO_CONFIRM:-0}"
 _is_allowed_config_key() {
   local key="$1"
   case "${key}" in
-    VPSMAGIC_HOME|BACKUP_ROOT|BACKUP_KEEP_LOCAL|BACKUP_KEEP_REMOTE|BACKUP_PREFIX|BACKUP_ENCRYPTION_KEY|\
-    RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|\
+    VPSMAGIC_HOME|BACKUP_ROOT|BACKUP_KEEP_LOCAL|BACKUP_KEEP_REMOTE|BACKUP_PREFIX|BACKUP_ENCRYPTION_KEY|BACKUP_DESTINATION|BACKUP_REMOTE_OVERRIDE|\
+    BACKUP_TARGETS|RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|\
     NOTIFY_ENABLED|TG_BOT_TOKEN|TG_CHAT_ID|\
     ENABLE_DOCKER_COMPOSE|ENABLE_DOCKER_STANDALONE|ENABLE_SYSTEMD|ENABLE_REVERSE_PROXY|ENABLE_DATABASE|\
     ENABLE_SSL_CERTS|ENABLE_CRONTAB|ENABLE_FIREWALL|ENABLE_USER_HOME|ENABLE_CUSTOM_PATHS|\
     COMPOSE_PROJECTS|SYSTEMD_SERVICES|EXTRA_PATHS|BACKUP_USERS|\
     DB_MYSQL_CONTAINERS|DB_MYSQL_HOST_USER|DB_MYSQL_HOST_PASS|DB_POSTGRES_CONTAINERS|DB_SQLITE_PATHS|\
-    LOG_FILE|SCHEDULE_CRON|\
+    LOG_FILE|UI_LANG|SCHEDULE_CRON|\
     MIGRATE_SSH_PORT|MIGRATE_SSH_KEY|MIGRATE_BW_LIMIT|MIGRATE_TARGET|MIGRATE_SKIP_RESTORE|MIGRATE_AUTO_CONFIRM)
       return 0
       ;;
@@ -100,7 +104,7 @@ _load_config_file_safely() {
   local line=""
 
   while IFS= read -r line || [[ -n "${line}" ]]; do
-    ((line_no++))
+    ((line_no+=1))
     line="${line%$'\r'}"
 
     # 跳过空行和注释
@@ -154,6 +158,7 @@ _load_config_file_safely() {
 # ---------- 配置加载 ----------
 load_config() {
   local config_file="${1:-}"
+  local log_lang="${UI_LANG:-}"
 
   # 搜索配置文件的优先顺序
   local search_paths=(
@@ -172,28 +177,31 @@ load_config() {
   done
 
   if [[ -z "${found}" ]]; then
-    log_warn "未找到配置文件，将使用默认值和交互式输入。"
+    log_warn "$(lang_pick "未找到配置文件，将使用默认值和交互式输入。" "No config file found. Falling back to defaults and interactive input.")"
     return 0
   fi
 
-  log_info "加载配置文件: ${found}"
+  log_info "$(lang_pick "加载配置文件" "Loading config file"): ${found}"
 
   # 安全检查：配置文件不应该有过于宽松的权限
   if is_linux; then
     local perms
-    perms="$(stat -c '%a' "${found}" 2>/dev/null || echo "unknown")"
+    perms="$(get_file_mode "${found}")"
     if [[ "${perms}" != "unknown" && "${perms}" != "600" && "${perms}" != "400" && "${perms}" != "640" && "${perms}" != "644" ]]; then
-      log_warn "配置文件权限为 ${perms}，建议设为 600: chmod 600 ${found}"
+      log_warn "$(lang_pick "配置文件权限为" "Config file permissions are") ${perms}，$(lang_pick "建议设为 600" "recommended: 600"): chmod 600 ${found}"
     fi
   fi
 
   if ! _load_config_file_safely "${found}"; then
-    log_error "配置文件解析失败: ${found}"
+    log_error "$(lang_pick "配置文件解析失败" "Failed to parse config file"): ${found}"
     return 1
   fi
 
+  local loaded_ui_lang="${UI_LANG:-}"
+  UI_LANG="${log_lang:-${loaded_ui_lang}}"
   _VPSMAGIC_CONFIG_FILE="${found}"
-  log_success "配置加载完成"
+  log_success "$(lang_pick "配置加载完成" "Config loaded successfully")"
+  UI_LANG="${loaded_ui_lang}"
   return 0
 }
 
@@ -204,57 +212,67 @@ validate_config() {
 
   case "${mode}" in
     backup|upload)
-      if [[ -z "${RCLONE_REMOTE}" ]]; then
-        log_error "RCLONE_REMOTE 未配置。请在配置文件中设置远端路径。"
-        log_info "  示例: RCLONE_REMOTE=\"mywebdav:backup/vps1\""
-        ((errors++))
-      fi
-      if ! command -v rclone >/dev/null 2>&1; then
-        log_error "rclone 未安装。"
-        log_info "  安装: curl https://rclone.org/install.sh | sudo bash"
-        ((errors++))
+      if [[ "${mode}" == "upload" || "$(should_use_remote_backup && echo yes || echo no)" == "yes" ]]; then
+        if ! command -v rclone >/dev/null 2>&1; then
+          log_error "$(lang_pick "rclone 未安装。" "rclone is not installed.")"
+          log_info "  $(lang_pick "安装" "Install"): curl https://rclone.org/install.sh | sudo bash"
+          ((errors+=1))
+        fi
       fi
       ;;
     restore)
       # restore 模式现在支持 --local，仅在非 local 模式时检查 rclone
       if [[ -z "${RESTORE_LOCAL_FILE:-}" ]]; then
-        if [[ -z "${RCLONE_REMOTE}" ]]; then
-          log_error "RCLONE_REMOTE 未配置。如需从本地文件恢复，请使用: vpsmagic restore --local <文件路径>"
-          ((errors++))
-        fi
         if ! command -v rclone >/dev/null 2>&1; then
-          log_error "rclone 未安装。"
-          log_info "  安装: curl https://rclone.org/install.sh | sudo bash"
-          ((errors++))
+          log_error "$(lang_pick "rclone 未安装。" "rclone is not installed.")"
+          log_info "  $(lang_pick "安装" "Install"): curl https://rclone.org/install.sh | sudo bash"
+          ((errors+=1))
         fi
       fi
       ;;
     migrate)
       # 迁移模式不需要 rclone，但需要 SSH
       if ! command -v ssh >/dev/null 2>&1; then
-        log_error "ssh 未安装。"
-        ((errors++))
+        log_error "$(lang_pick "ssh 未安装。" "ssh is not installed.")"
+        ((errors+=1))
       fi
       if ! command -v rsync >/dev/null 2>&1; then
-        log_warn "rsync 未安装，将回退使用 scp。建议安装 rsync 获得更好的体验。"
+        log_warn "$(lang_pick "rsync 未安装，将回退使用 scp。建议安装 rsync 获得更好的体验。" "rsync is not installed. Migration will fall back to scp. Installing rsync is recommended.")"
       fi
       ;;
   esac
 
   if [[ "${NOTIFY_ENABLED}" == "true" ]]; then
     if [[ -z "${TG_BOT_TOKEN}" || -z "${TG_CHAT_ID}" ]]; then
-      log_warn "Telegram 通知已启用但 Token/ChatID 未配置，将跳过通知。"
+      log_warn "$(lang_pick "Telegram 通知已启用但 Token/ChatID 未配置，将跳过通知。" "Telegram notifications are enabled but Token/Chat ID is missing. Notifications will be skipped.")"
       NOTIFY_ENABLED="false"
     fi
   fi
 
   if (( errors > 0 )); then
-    log_error "配置校验发现 ${errors} 个错误，请修复后重试。"
+    log_error "$(lang_pick "配置校验发现" "Configuration validation found") ${errors} $(lang_pick "个错误，请修复后重试。" "error(s). Please fix them and try again.")"
     return 1
   fi
 
   log_debug "配置校验通过"
   return 0
+}
+
+normalize_backup_destination() {
+  local destination="${BACKUP_DESTINATION:-remote}"
+  case "${destination}" in
+    local|remote)
+      echo "${destination}"
+      ;;
+    *)
+      log_warn "未知 BACKUP_DESTINATION=${destination}，已回退为 remote"
+      echo "remote"
+      ;;
+  esac
+}
+
+should_use_remote_backup() {
+  [[ "$(normalize_backup_destination)" == "remote" ]]
 }
 
 # ---------- 模块启用检查 ----------
@@ -269,36 +287,77 @@ is_module_enabled() {
   [[ "${val}" == "true" || "${val}" == "1" || "${val}" == "yes" ]]
 }
 
+get_backup_targets() {
+  local result_var="$1"
+  eval "${result_var}=()"
+
+  if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" ]]; then
+    eval "${result_var}+=(\"\${BACKUP_REMOTE_OVERRIDE}\")"
+    return 0
+  fi
+
+  if [[ -n "${BACKUP_TARGETS:-}" ]]; then
+    parse_list "${BACKUP_TARGETS}" "${result_var}"
+    return 0
+  fi
+
+  if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+    eval "${result_var}+=(\"\${RCLONE_REMOTE}\")"
+    return 0
+  fi
+
+  local host_name="$(hostname 2>/dev/null || echo 'vps')"
+  eval "${result_var}+=(
+    \"gdrive:VPSMagicBackup/${host_name}\"
+    \"onedrive:VPSMagicBackup/${host_name}\"
+    \"openlist_webdav:backup/${host_name}\"
+  )"
+}
+
 # ---------- 打印当前配置 ----------
 print_config() {
+  local -a backup_targets=()
+  get_backup_targets backup_targets
+
   echo
-  echo -e "${_CLR_BOLD}当前配置:${_CLR_NC}"
-  echo "  备份根目录:       ${BACKUP_ROOT}"
-  echo "  远端路径:         ${RCLONE_REMOTE:-未配置}"
-  echo "  本地保留:         ${BACKUP_KEEP_LOCAL} 份"
-  echo "  远端保留:         ${BACKUP_KEEP_REMOTE} 份"
-  echo "  加密:             ${BACKUP_ENCRYPTION_KEY:+已启用}${BACKUP_ENCRYPTION_KEY:-未启用}"
-  echo "  通知:             ${NOTIFY_ENABLED}"
-  echo "  日志文件:         ${LOG_FILE}"
+  echo -e "${_CLR_BOLD}$(lang_pick "当前配置" "Current configuration"):${_CLR_NC}"
+  echo "  $(lang_pick "备份根目录" "Backup root"):       ${BACKUP_ROOT}"
+  echo "  $(lang_pick "备份目标模式" "Backup destination"):     $(normalize_backup_destination)"
+  echo "  $(lang_pick "界面语言" "Interface language"):       ${UI_LANG:-zh}"
+  echo "  $(lang_pick "远端目标策略" "Remote target strategy"):"
+  local idx=1
+  for target in "${backup_targets[@]}"; do
+    echo "    ${idx}. ${target}"
+    ((idx+=1))
+  done
+  echo "  $(lang_pick "本地保留" "Local retention"):         ${BACKUP_KEEP_LOCAL} $(lang_pick "份" "copies")"
+  echo "  $(lang_pick "远端保留" "Remote retention"):         ${BACKUP_KEEP_REMOTE} $(lang_pick "份" "copies")"
+  if [[ -n "${BACKUP_ENCRYPTION_KEY}" ]]; then
+    echo "  $(lang_pick "加密" "Encryption"):             $(lang_pick "已启用" "enabled")"
+  else
+    echo "  $(lang_pick "加密" "Encryption"):             $(lang_pick "未启用" "disabled")"
+  fi
+  echo "  $(lang_pick "通知" "Notifications"):             ${NOTIFY_ENABLED}"
+  echo "  $(lang_pick "日志文件" "Log file"):         ${LOG_FILE}"
   echo
-  echo -e "${_CLR_BOLD}启用的备份模块:${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "启用的备份模块" "Enabled backup modules"):${_CLR_NC}"
 
   local modules=(
-    "DOCKER_COMPOSE:Docker Compose 项目"
-    "DOCKER_STANDALONE:独立 Docker 容器"
-    "SYSTEMD:Systemd 服务"
-    "REVERSE_PROXY:反向代理配置"
-    "DATABASE:数据库"
-    "SSL_CERTS:SSL 证书"
-    "CRONTAB:Crontab 定时任务"
-    "FIREWALL:防火墙规则"
-    "USER_HOME:用户目录"
-    "CUSTOM_PATHS:自定义路径"
+    "DOCKER_COMPOSE"
+    "DOCKER_STANDALONE"
+    "SYSTEMD"
+    "REVERSE_PROXY"
+    "DATABASE"
+    "SSL_CERTS"
+    "CRONTAB"
+    "FIREWALL"
+    "USER_HOME"
+    "CUSTOM_PATHS"
   )
 
-  for entry in "${modules[@]}"; do
-    local key="${entry%%:*}"
-    local label="${entry#*:}"
+  for key in "${modules[@]}"; do
+    local label
+    label="$(module_display_name "${key}")"
     if is_module_enabled "${key}"; then
       echo -e "  ${_CLR_GREEN}✓${_CLR_NC} ${label}"
     else

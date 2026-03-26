@@ -90,7 +90,7 @@ log_debug() {
 
 log_dry_run() {
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
-    echo -e "${_CLR_DIM}[DRY-RUN] 将执行: $*${_CLR_NC}"
+    echo -e "${_CLR_DIM}[DRY-RUN] $(lang_pick "将执行" "Would run"): $*${_CLR_NC}"
     _log_to_file "[DRY-RUN] $*"
     return 0
   fi
@@ -110,12 +110,15 @@ summary_render() {
   local output=""
   local sep="————————————————————"
 
-  output+="📋 VPS Magic Backup 执行摘要\n"
+  output+="📋 $(lang_pick "VPS Magic Backup 执行摘要" "VPS Magic Backup execution summary")\n"
   output+="${sep}\n"
 
   for item in "${_SUMMARY_ITEMS[@]}"; do
     IFS='|' read -r status module detail <<< "${item}"
     local icon=""
+    local rendered_module rendered_detail
+    rendered_module="$(summary_module_name "${module}")"
+    rendered_detail="$(summary_detail_text "${detail}")"
     case "${status}" in
       ok)    icon="✅" ;;
       warn)  icon="⚠️" ;;
@@ -123,15 +126,15 @@ summary_render() {
       skip)  icon="⏭️" ;;
       *)     icon="•" ;;
     esac
-    if [[ -n "${detail}" ]]; then
-      output+="${icon} ${module}: ${detail}\n"
+    if [[ -n "${rendered_detail}" ]]; then
+      output+="${icon} ${rendered_module}: ${rendered_detail}\n"
     else
-      output+="${icon} ${module}\n"
+      output+="${icon} ${rendered_module}\n"
     fi
   done
 
   output+="${sep}\n"
-  output+="⚠️ 警告: ${_WARN_COUNT}  ❌ 错误: ${_ERROR_COUNT}\n"
+  output+="⚠️ $(lang_pick "警告" "Warnings"): ${_WARN_COUNT}  ❌ $(lang_pick "错误" "Errors"): ${_ERROR_COUNT}\n"
 
   echo -e "${output}"
 }

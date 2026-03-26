@@ -11,11 +11,11 @@ collect_custom_paths() {
   local target_dir="${staging_dir}/custom_paths"
 
   if [[ -z "${EXTRA_PATHS:-}" ]]; then
-    log_debug "未配置自定义备份路径 (EXTRA_PATHS)。"
+    log_debug "$(lang_pick "未配置自定义备份路径 (EXTRA_PATHS)。" "No custom backup paths configured (EXTRA_PATHS).")"
     return 0
   fi
 
-  log_step "采集自定义路径..."
+  log_step "$(lang_pick "采集自定义路径..." "Collecting custom paths...")"
 
   local -a paths=()
   parse_list "${EXTRA_PATHS}" paths
@@ -29,14 +29,14 @@ collect_custom_paths() {
 
   for src_path in "${paths[@]}"; do
     if [[ ! -e "${src_path}" ]]; then
-      log_warn "  自定义路径不存在: ${src_path}"
+      log_warn "  $(lang_pick "自定义路径不存在" "Custom path does not exist"): ${src_path}"
       continue
     fi
 
-    log_info "  备份: ${src_path}"
+    log_info "  $(lang_pick "备份" "Backing up"): ${src_path}"
 
-    if log_dry_run "备份自定义路径: ${src_path}"; then
-      ((count++))
+    if log_dry_run "$(lang_pick "备份自定义路径" "Backup custom path"): ${src_path}"; then
+      ((count+=1))
       continue
     fi
 
@@ -46,7 +46,7 @@ collect_custom_paths() {
     if [[ -d "${src_path}" ]]; then
       tar -czf "${target_dir}/${safe_name}.tar.gz" \
         -C "$(dirname "${src_path}")" "$(basename "${src_path}")" 2>/dev/null || {
-        log_warn "    目录备份失败: ${src_path}"
+        log_warn "    $(lang_pick "目录备份失败" "Directory backup failed"): ${src_path}"
         continue
       }
     elif [[ -f "${src_path}" ]]; then
@@ -54,11 +54,11 @@ collect_custom_paths() {
     fi
 
     echo "${src_path}" >> "${target_dir}/_path_map.txt"
-    ((count++))
+    ((count+=1))
   done
 
   if (( count > 0 )); then
-    log_success "自定义路径: 已备份 ${count} 项"
-    summary_add "ok" "自定义路径" "${count} 项"
+    log_success "$(lang_pick "自定义路径" "Custom paths"): $(lang_pick "已备份" "backed up") ${count} $(lang_pick "项" "items")"
+    summary_add "ok" "自定义路径" "${count} $(lang_pick "项" "items")"
   fi
 }

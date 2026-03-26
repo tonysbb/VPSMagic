@@ -54,7 +54,7 @@ collect_systemd_services() {
     log_info "  备份服务: ${svc_name}"
 
     if log_dry_run "备份 Systemd 服务: ${svc_name}"; then
-      ((count++))
+      ((count+=1))
       continue
     fi
 
@@ -175,7 +175,7 @@ collect_systemd_services() {
       fi
     fi
 
-    ((count++))
+    ((count+=1))
   done
 
   log_success "Systemd 服务: 已备份 ${count} 个"

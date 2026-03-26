@@ -50,7 +50,7 @@ collect_docker_standalone() {
     log_info "  备份容器: ${name}"
 
     if log_dry_run "备份独立容器: ${name}"; then
-      ((count++))
+      ((count+=1))
       continue
     fi
 
@@ -105,7 +105,7 @@ collect_docker_standalone() {
       fi
     done < <(docker inspect "${cid}" --format '{{ range .Mounts }}{{ .Type }}:{{ .Source }}:{{ .Destination }}{{ printf "\n" }}{{ end }}' 2>/dev/null)
 
-    ((count++))
+    ((count+=1))
   done
 
   log_success "独立容器: 已备份 ${count} 个"
