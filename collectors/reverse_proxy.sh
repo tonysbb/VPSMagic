@@ -13,6 +13,7 @@ collect_reverse_proxy() {
   log_step "采集反向代理配置..."
 
   local found=0
+  local apache_detected=0
 
   # ---- Nginx ----
   if command -v nginx >/dev/null 2>&1 || [[ -d "/etc/nginx" ]]; then
@@ -63,7 +64,15 @@ collect_reverse_proxy() {
   fi
 
   # ---- Apache (可选) ----
-  if command -v apache2 >/dev/null 2>&1 || command -v httpd >/dev/null 2>&1 || [[ -d "/etc/apache2" ]] || [[ -d "/etc/httpd" ]]; then
+  if systemctl is-active apache2 >/dev/null 2>&1 || systemctl is-enabled apache2 >/dev/null 2>&1; then
+    apache_detected=1
+  elif [[ -f "/etc/apache2/apache2.conf" ]] || [[ -f "/etc/httpd/conf/httpd.conf" ]]; then
+    if find /etc/apache2/sites-enabled /etc/apache2/sites-available /etc/httpd/conf.d -maxdepth 1 -type f 2>/dev/null | grep -q .; then
+      apache_detected=1
+    fi
+  fi
+
+  if (( apache_detected == 1 )); then
     log_info "  发现 Apache 配置"
     local apache_dir="${target_dir}/apache"
 

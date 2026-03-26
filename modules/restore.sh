@@ -6,6 +6,189 @@
 [[ -n "${_MODULE_RESTORE_LOADED:-}" ]] && return 0
 _MODULE_RESTORE_LOADED=1
 
+_RESTORE_HEALTH_COMPOSE_DIRS=()
+_RESTORE_HEALTH_SYSTEMD_SERVICES=()
+_RESTORE_HEALTH_PROXY_SERVICES=()
+_RESTORE_HEALTH_CHECK_USER_HOME=0
+
+_reset_restore_health_checks() {
+  _RESTORE_HEALTH_COMPOSE_DIRS=()
+  _RESTORE_HEALTH_SYSTEMD_SERVICES=()
+  _RESTORE_HEALTH_PROXY_SERVICES=()
+  _RESTORE_HEALTH_CHECK_USER_HOME=0
+}
+
+_append_unique_line() {
+  local value="$1"
+  shift
+  local existing=""
+  for existing in "$@"; do
+    [[ "${existing}" == "${value}" ]] && return 0
+  done
+  return 1
+}
+
+_register_restore_compose_dir() {
+  local dir="$1"
+  [[ -n "${dir}" ]] || return 0
+  if ! _append_unique_line "${dir}" "${_RESTORE_HEALTH_COMPOSE_DIRS[@]}"; then
+    _RESTORE_HEALTH_COMPOSE_DIRS+=("${dir}")
+  fi
+}
+
+_register_restore_systemd_service() {
+  local svc="$1"
+  [[ -n "${svc}" ]] || return 0
+  if ! _append_unique_line "${svc}" "${_RESTORE_HEALTH_SYSTEMD_SERVICES[@]}"; then
+    _RESTORE_HEALTH_SYSTEMD_SERVICES+=("${svc}")
+  fi
+}
+
+_register_restore_proxy_service() {
+  local svc="$1"
+  [[ -n "${svc}" ]] || return 0
+  if ! _append_unique_line "${svc}" "${_RESTORE_HEALTH_PROXY_SERVICES[@]}"; then
+    _RESTORE_HEALTH_PROXY_SERVICES+=("${svc}")
+  fi
+}
+
+_find_compose_file() {
+  local project_dir="$1"
+  local candidate=""
+  for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+    if [[ -f "${project_dir}/${candidate}" ]]; then
+      printf '%s\n' "${project_dir}/${candidate}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_port_is_listening() {
+  local port="$1"
+  [[ -n "${port}" ]] || return 1
+
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[:.])${port}$"
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[:.])${port}$"
+  else
+    return 1
+  fi
+}
+
+_collect_compose_published_ports() {
+  local compose_project="$1"
+  local out_var="$2"
+  local -a collected=()
+  local cid=""
+
+  while IFS= read -r cid; do
+    [[ -n "${cid}" ]] || continue
+    while IFS= read -r mapping; do
+      [[ -n "${mapping}" ]] || continue
+      local host_part="${mapping##*->}"
+      host_part="${host_part%%/*}"
+      local host_port="${host_part##*:}"
+      [[ "${host_port}" =~ ^[0-9]+$ ]] || continue
+      if ! _append_unique_line "${host_port}" "${collected[@]}"; then
+        collected+=("${host_port}")
+      fi
+    done < <(docker port "${cid}" 2>/dev/null | awk -F'[: ]+' 'NF {print $NF}' | grep -E '^[0-9]+$' || true)
+  done < <(docker ps -q --filter "label=com.docker.compose.project=${compose_project}" 2>/dev/null)
+
+  eval "${out_var}=(\"\${collected[@]}\")"
+}
+
+_run_restore_health_checks() {
+  if [[ "${DRY_RUN:-0}" == "1" ]]; then
+    return 0
+  fi
+
+  log_step "$(lang_pick "恢复后健康检查..." "Post-restore health checks...")"
+
+  local compose_dir=""
+  for compose_dir in "${_RESTORE_HEALTH_COMPOSE_DIRS[@]}"; do
+    local compose_file=""
+    compose_file="$(_find_compose_file "${compose_dir}")"
+    if [[ -z "${compose_file}" ]]; then
+      summary_add "warn" "健康检查 / Docker Compose" "${compose_dir}: $(lang_pick "未找到 compose 文件" "compose file missing")"
+      continue
+    fi
+
+    local expected_services="0"
+    local running_services="0"
+    expected_services="$(docker compose -f "${compose_file}" config --services 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
+    running_services="$(docker compose -f "${compose_file}" ps --services --filter status=running 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
+    if (( expected_services > 0 && running_services == expected_services )); then
+      summary_add "ok" "健康检查 / Docker Compose" "$(basename "${compose_dir}"): ${running_services}/${expected_services} running"
+    else
+      summary_add "warn" "健康检查 / Docker Compose" "$(basename "${compose_dir}"): ${running_services}/${expected_services} running"
+    fi
+
+    local compose_project=""
+    compose_project="$(basename "${compose_dir}")"
+    local -a published_ports=()
+    _collect_compose_published_ports "${compose_project}" published_ports
+    if (( ${#published_ports[@]} > 0 )); then
+      local port=""
+      local -a listening_ports=()
+      for port in "${published_ports[@]}"; do
+        if _port_is_listening "${port}"; then
+          listening_ports+=("${port}")
+        fi
+      done
+      if (( ${#listening_ports[@]} == ${#published_ports[@]} )); then
+        summary_add "ok" "健康检查 / Compose 端口" "${compose_project}: $(IFS=,; echo "${listening_ports[*]}")"
+      else
+        summary_add "warn" "健康检查 / Compose 端口" "${compose_project}: $(IFS=,; echo "${listening_ports[*]:-none}") / $(IFS=,; echo "${published_ports[*]}")"
+      fi
+    fi
+  done
+
+  local svc=""
+  for svc in "${_RESTORE_HEALTH_SYSTEMD_SERVICES[@]}"; do
+    local active_state=""
+    active_state="$(systemctl is-active "${svc}" 2>/dev/null || true)"
+    if [[ "${active_state}" == "active" ]]; then
+      summary_add "ok" "健康检查 / Systemd" "${svc}: active"
+    else
+      summary_add "warn" "健康检查 / Systemd" "${svc}: ${active_state:-unknown}"
+    fi
+  done
+
+  for svc in "${_RESTORE_HEALTH_PROXY_SERVICES[@]}"; do
+    local active_state=""
+    active_state="$(systemctl is-active "${svc}" 2>/dev/null || true)"
+    if [[ "${active_state}" == "active" ]]; then
+      summary_add "ok" "健康检查 / 反向代理" "${svc}: active"
+    else
+      summary_add "warn" "健康检查 / 反向代理" "${svc}: ${active_state:-unknown}"
+    fi
+  done
+
+  local -a proxy_ports=()
+  _port_is_listening 80 && proxy_ports+=("80")
+  _port_is_listening 443 && proxy_ports+=("443")
+  if (( ${#_RESTORE_HEALTH_PROXY_SERVICES[@]} > 0 )); then
+    if (( ${#proxy_ports[@]} > 0 )); then
+      summary_add "ok" "健康检查 / 代理端口" "$(IFS=,; echo "${proxy_ports[*]}")"
+    else
+      summary_add "warn" "健康检查 / 代理端口" "$(lang_pick "80/443 未监听" "80/443 not listening")"
+    fi
+  fi
+
+  if (( _RESTORE_HEALTH_CHECK_USER_HOME == 1 )) && command -v rclone >/dev/null 2>&1; then
+    local remote_count="0"
+    remote_count="$(rclone listremotes 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
+    if (( remote_count > 0 )); then
+      summary_add "ok" "健康检查 / rclone" "${remote_count} $(lang_pick "个 remote 可用" "remotes available")"
+    else
+      summary_add "warn" "健康检查 / rclone" "$(lang_pick "未发现可用 remote" "no remotes detected")"
+    fi
+  fi
+}
+
 _build_restore_rclone_opts() {
   local out_var="$1"
   eval "${out_var}=()"
@@ -98,6 +281,7 @@ _ensure_python_venv_support() {
 }
 
 run_restore() {
+  _reset_restore_health_checks
   # 本地文件恢复模式 (由 migrate 或 --local 触发)
   if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
     _restore_from_local "${RESTORE_LOCAL_FILE}"
@@ -353,6 +537,8 @@ run_restore() {
     esac
   done
 
+  _run_restore_health_checks
+
   # ==================== 完成 ====================
   local end_ts
   end_ts="$(date +%s)"
@@ -484,6 +670,7 @@ _restore_docker_compose() {
     (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d 2>/dev/null) || {
       log_warn "  项目 ${compose_project_name} 启动失败，请手动检查"
     }
+    _register_restore_compose_dir "${original_path}"
   done
 
   summary_add "ok" "恢复 Docker Compose" "已恢复"
@@ -555,6 +742,7 @@ _restore_systemd() {
     local svc_warn=0
 
     log_info "  恢复服务: ${svc_name}"
+    _register_restore_systemd_service "${svc_name}"
 
     if log_dry_run "恢复 Systemd: ${svc_name}"; then continue; fi
 
@@ -653,7 +841,7 @@ _restore_systemd() {
     fi
 
     ((restored_count+=1))
-    ((warning_count+=svc_warn))
+    warning_count=$(( warning_count + svc_warn ))
   done
 
   systemctl daemon-reload 2>/dev/null || true
@@ -669,16 +857,27 @@ _restore_systemd() {
 _restore_reverse_proxy() {
   local mod_dir="$1"
   log_step "恢复反向代理配置..."
+  local restored_count=0
+  local warning_count=0
 
   # Nginx
   if [[ -f "${mod_dir}/nginx/etc_nginx.tar.gz" ]]; then
     log_info "  恢复 Nginx 配置..."
     if ! log_dry_run "恢复 Nginx"; then
       tar -xzf "${mod_dir}/nginx/etc_nginx.tar.gz" -C /etc 2>/dev/null || true
-      if command -v nginx >/dev/null 2>&1; then
+      if command -v nginx >/dev/null 2>&1 && systemctl list-unit-files nginx.service >/dev/null 2>&1; then
+        systemctl enable nginx 2>/dev/null || true
+        if ! systemctl is-active nginx >/dev/null 2>&1; then
+          systemctl start nginx 2>/dev/null || {
+            log_warn "  Nginx 启动失败，请手动检查"
+            ((warning_count+=1))
+          }
+        fi
         nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
       fi
     fi
+    _register_restore_proxy_service "nginx"
+    ((restored_count+=1))
   fi
 
   # Caddy
@@ -686,8 +885,19 @@ _restore_reverse_proxy() {
     log_info "  恢复 Caddy 配置..."
     if ! log_dry_run "恢复 Caddy"; then
       tar -xzf "${mod_dir}/caddy/etc_caddy.tar.gz" -C /etc 2>/dev/null || true
-      systemctl reload caddy 2>/dev/null || true
+      if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+        systemctl enable caddy 2>/dev/null || true
+        if ! systemctl is-active caddy >/dev/null 2>&1; then
+          systemctl start caddy 2>/dev/null || {
+            log_warn "  Caddy 启动失败，请手动检查"
+            ((warning_count+=1))
+          }
+        fi
+        systemctl reload caddy 2>/dev/null || true
+      fi
     fi
+    systemctl list-unit-files caddy.service >/dev/null 2>&1 && _register_restore_proxy_service "caddy"
+    ((restored_count+=1))
   fi
 
   # Apache
@@ -695,10 +905,28 @@ _restore_reverse_proxy() {
     log_info "  恢复 Apache 配置..."
     if ! log_dry_run "恢复 Apache"; then
       tar -xzf "${mod_dir}/apache/etc_apache2.tar.gz" -C /etc 2>/dev/null || true
+      if systemctl list-unit-files apache2.service >/dev/null 2>&1; then
+        systemctl enable apache2 2>/dev/null || true
+        if ! systemctl is-active apache2 >/dev/null 2>&1; then
+          systemctl start apache2 2>/dev/null || {
+            log_warn "  Apache 启动失败，请手动检查"
+            ((warning_count+=1))
+          }
+        fi
+        systemctl reload apache2 2>/dev/null || true
+      fi
     fi
+    systemctl list-unit-files apache2.service >/dev/null 2>&1 && _register_restore_proxy_service "apache2"
+    ((restored_count+=1))
   fi
 
-  summary_add "ok" "恢复反向代理" "配置已恢复"
+  if (( restored_count == 0 )); then
+    summary_add "skip" "恢复反向代理" "未发现可恢复配置"
+  elif (( warning_count > 0 )); then
+    summary_add "warn" "恢复反向代理" "${restored_count} 项已处理，${warning_count} 项需手动检查"
+  else
+    summary_add "ok" "恢复反向代理" "${restored_count} 项配置已恢复"
+  fi
 }
 
 _restore_database() {
@@ -913,6 +1141,7 @@ _restore_user_home() {
     # 修正所有权
     chown -R "${username}:" "${home}" 2>/dev/null || true
     ((restored_users+=1))
+    _RESTORE_HEALTH_CHECK_USER_HOME=1
   done
 
   if (( restored_users == 0 )); then
@@ -958,6 +1187,7 @@ _restore_from_local() {
   local local_archive="$1"
   local start_ts
   start_ts="$(date +%s)"
+  _reset_restore_health_checks
 
   log_banner "$(lang_pick "VPS Magic Backup — 恢复模式 (本地文件)" "VPS Magic Backup — Restore Mode (Local File)")"
 
@@ -1094,6 +1324,8 @@ _restore_from_local() {
       *)                 log_warn "$(lang_pick "未知模块" "Unknown module") ${mod}，$(lang_pick "跳过。" "skipping.")" ;;
     esac
   done
+
+  _run_restore_health_checks
 
   # ==================== 完成 ====================
   local end_ts

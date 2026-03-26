@@ -44,8 +44,36 @@ collect_docker_compose() {
       done < <(printf '%s' "${compose_ls_json}" | grep -o '"ConfigFiles":"[^"]*"' || true)
     fi
 
+    # 方法1.5: 从运行中容器的 compose labels 反查项目目录
+    local container_id=""
+    while IFS= read -r container_id; do
+      [[ -n "${container_id}" ]] || continue
+      local working_dir=""
+      local config_files=""
+      working_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "${container_id}" 2>/dev/null || true)"
+      config_files="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' "${container_id}" 2>/dev/null || true)"
+
+      if [[ -n "${working_dir}" && -d "${working_dir}" ]] && ! in_array "${working_dir}" "${projects[@]}"; then
+        projects+=("${working_dir}")
+      fi
+
+      if [[ -n "${config_files}" ]]; then
+        IFS=',' read -r -a _config_items <<< "${config_files}"
+        local cfg_file=""
+        for cfg_file in "${_config_items[@]}"; do
+          cfg_file="$(echo "${cfg_file}" | xargs)"
+          [[ -z "${cfg_file}" ]] && continue
+          local proj_dir=""
+          proj_dir="$(dirname "${cfg_file}")"
+          if [[ -d "${proj_dir}" ]] && ! in_array "${proj_dir}" "${projects[@]}"; then
+            projects+=("${proj_dir}")
+          fi
+        done
+      fi
+    done < <(docker ps -q 2>/dev/null)
+
     # 方法2: 查找常见路径下的 compose 文件，补足未运行或 ls 未列出的项目
-    local search_dirs=("/opt" "/srv" "/home" "/root" "/var/docker")
+    local search_dirs=("/opt" "/srv" "/home" "/root" "/var/docker" "/app" "/apps" "/data" "/var/www" "/usr/local")
     local sdir=""
     for sdir in "${search_dirs[@]}"; do
       if [[ -d "${sdir}" ]]; then
