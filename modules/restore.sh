@@ -11,6 +11,7 @@ _RESTORE_HEALTH_SYSTEMD_SERVICES=()
 _RESTORE_HEALTH_PROXY_SERVICES=()
 _RESTORE_HEALTH_EXPECT_PROXY=0
 _RESTORE_HEALTH_CHECK_USER_HOME=0
+_RESTORE_APT_UPDATED=0
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -18,6 +19,7 @@ _reset_restore_health_checks() {
   _RESTORE_HEALTH_PROXY_SERVICES=()
   _RESTORE_HEALTH_EXPECT_PROXY=0
   _RESTORE_HEALTH_CHECK_USER_HOME=0
+  _RESTORE_APT_UPDATED=0
 }
 
 _append_unique_line() {
@@ -67,6 +69,53 @@ _systemd_unit_exists() {
   fi
 
   systemctl list-unit-files "${unit}.service" >/dev/null 2>&1
+}
+
+_ensure_restore_apt_index() {
+  if (( _RESTORE_APT_UPDATED == 0 )); then
+    apt-get update -qq >/dev/null 2>&1 || true
+    _RESTORE_APT_UPDATED=1
+  fi
+}
+
+_ensure_proxy_service_package() {
+  local svc="$1"
+  local pm=""
+  local pkg=""
+
+  pm="$(detect_pkg_manager)"
+  case "${svc}:${pm}" in
+    nginx:apt|nginx:dnf|nginx:yum|nginx:apk) pkg="nginx" ;;
+    apache2:apt) pkg="apache2" ;;
+    caddy:apt) pkg="caddy" ;;
+    *) return 1 ;;
+  esac
+
+  if _systemd_unit_exists "${svc}"; then
+    return 0
+  fi
+
+  log_info "  尝试安装代理服务包: ${pkg}"
+  case "${pm}" in
+    apt)
+      _ensure_restore_apt_index
+      apt-get install -y -qq "${pkg}" >/dev/null 2>&1 || return 1
+      ;;
+    dnf)
+      dnf install -y -q "${pkg}" >/dev/null 2>&1 || return 1
+      ;;
+    yum)
+      yum install -y -q "${pkg}" >/dev/null 2>&1 || return 1
+      ;;
+    apk)
+      apk add --quiet "${pkg}" >/dev/null 2>&1 || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  _systemd_unit_exists "${svc}"
 }
 
 _find_compose_file() {
@@ -884,6 +933,9 @@ _restore_reverse_proxy() {
     log_info "  恢复 Nginx 配置..."
     if ! log_dry_run "恢复 Nginx"; then
       tar -xzf "${mod_dir}/nginx/etc_nginx.tar.gz" -C /etc 2>/dev/null || true
+      if ! _systemd_unit_exists "nginx"; then
+        _ensure_proxy_service_package "nginx" || true
+      fi
       if command -v nginx >/dev/null 2>&1 && _systemd_unit_exists "nginx"; then
         systemctl enable nginx 2>/dev/null || true
         if ! systemctl is-active nginx >/dev/null 2>&1; then
@@ -908,6 +960,9 @@ _restore_reverse_proxy() {
     log_info "  恢复 Caddy 配置..."
     if ! log_dry_run "恢复 Caddy"; then
       tar -xzf "${mod_dir}/caddy/etc_caddy.tar.gz" -C /etc 2>/dev/null || true
+      if ! _systemd_unit_exists "caddy"; then
+        _ensure_proxy_service_package "caddy" || true
+      fi
       if _systemd_unit_exists "caddy"; then
         systemctl enable caddy 2>/dev/null || true
         if ! systemctl is-active caddy >/dev/null 2>&1; then
@@ -932,6 +987,9 @@ _restore_reverse_proxy() {
     log_info "  恢复 Apache 配置..."
     if ! log_dry_run "恢复 Apache"; then
       tar -xzf "${mod_dir}/apache/etc_apache2.tar.gz" -C /etc 2>/dev/null || true
+      if ! _systemd_unit_exists "apache2"; then
+        _ensure_proxy_service_package "apache2" || true
+      fi
       if _systemd_unit_exists "apache2"; then
         systemctl enable apache2 2>/dev/null || true
         if ! systemctl is-active apache2 >/dev/null 2>&1; then
