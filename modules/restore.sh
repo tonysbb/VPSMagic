@@ -9,12 +9,14 @@ _MODULE_RESTORE_LOADED=1
 _RESTORE_HEALTH_COMPOSE_DIRS=()
 _RESTORE_HEALTH_SYSTEMD_SERVICES=()
 _RESTORE_HEALTH_PROXY_SERVICES=()
+_RESTORE_HEALTH_EXPECT_PROXY=0
 _RESTORE_HEALTH_CHECK_USER_HOME=0
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
   _RESTORE_HEALTH_SYSTEMD_SERVICES=()
   _RESTORE_HEALTH_PROXY_SERVICES=()
+  _RESTORE_HEALTH_EXPECT_PROXY=0
   _RESTORE_HEALTH_CHECK_USER_HOME=0
 }
 
@@ -50,6 +52,21 @@ _register_restore_proxy_service() {
   if ! _append_unique_line "${svc}" "${_RESTORE_HEALTH_PROXY_SERVICES[@]}"; then
     _RESTORE_HEALTH_PROXY_SERVICES+=("${svc}")
   fi
+}
+
+_mark_restore_proxy_expected() {
+  _RESTORE_HEALTH_EXPECT_PROXY=1
+}
+
+_systemd_unit_exists() {
+  local unit="$1"
+  [[ -n "${unit}" ]] || return 1
+
+  if systemctl cat "${unit}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  systemctl list-unit-files "${unit}.service" >/dev/null 2>&1
 }
 
 _find_compose_file() {
@@ -170,7 +187,7 @@ _run_restore_health_checks() {
   local -a proxy_ports=()
   _port_is_listening 80 && proxy_ports+=("80")
   _port_is_listening 443 && proxy_ports+=("443")
-  if (( ${#_RESTORE_HEALTH_PROXY_SERVICES[@]} > 0 )); then
+  if (( _RESTORE_HEALTH_EXPECT_PROXY == 1 )); then
     if (( ${#proxy_ports[@]} > 0 )); then
       summary_add "ok" "健康检查 / 代理端口" "$(IFS=,; echo "${proxy_ports[*]}")"
     else
@@ -862,10 +879,12 @@ _restore_reverse_proxy() {
 
   # Nginx
   if [[ -f "${mod_dir}/nginx/etc_nginx.tar.gz" ]]; then
+    _mark_restore_proxy_expected
+    _register_restore_proxy_service "nginx"
     log_info "  恢复 Nginx 配置..."
     if ! log_dry_run "恢复 Nginx"; then
       tar -xzf "${mod_dir}/nginx/etc_nginx.tar.gz" -C /etc 2>/dev/null || true
-      if command -v nginx >/dev/null 2>&1 && systemctl list-unit-files nginx.service >/dev/null 2>&1; then
+      if command -v nginx >/dev/null 2>&1 && _systemd_unit_exists "nginx"; then
         systemctl enable nginx 2>/dev/null || true
         if ! systemctl is-active nginx >/dev/null 2>&1; then
           systemctl start nginx 2>/dev/null || {
@@ -874,18 +893,22 @@ _restore_reverse_proxy() {
           }
         fi
         nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+      else
+        log_warn "  未发现 Nginx 服务单元，请手动检查"
+        ((warning_count+=1))
       fi
     fi
-    _register_restore_proxy_service "nginx"
     ((restored_count+=1))
   fi
 
   # Caddy
   if [[ -f "${mod_dir}/caddy/etc_caddy.tar.gz" ]]; then
+    _mark_restore_proxy_expected
+    _register_restore_proxy_service "caddy"
     log_info "  恢复 Caddy 配置..."
     if ! log_dry_run "恢复 Caddy"; then
       tar -xzf "${mod_dir}/caddy/etc_caddy.tar.gz" -C /etc 2>/dev/null || true
-      if systemctl list-unit-files caddy.service >/dev/null 2>&1; then
+      if _systemd_unit_exists "caddy"; then
         systemctl enable caddy 2>/dev/null || true
         if ! systemctl is-active caddy >/dev/null 2>&1; then
           systemctl start caddy 2>/dev/null || {
@@ -894,18 +917,22 @@ _restore_reverse_proxy() {
           }
         fi
         systemctl reload caddy 2>/dev/null || true
+      else
+        log_warn "  未发现 Caddy 服务单元，请手动检查"
+        ((warning_count+=1))
       fi
     fi
-    systemctl list-unit-files caddy.service >/dev/null 2>&1 && _register_restore_proxy_service "caddy"
     ((restored_count+=1))
   fi
 
   # Apache
   if [[ -f "${mod_dir}/apache/etc_apache2.tar.gz" ]]; then
+    _mark_restore_proxy_expected
+    _register_restore_proxy_service "apache2"
     log_info "  恢复 Apache 配置..."
     if ! log_dry_run "恢复 Apache"; then
       tar -xzf "${mod_dir}/apache/etc_apache2.tar.gz" -C /etc 2>/dev/null || true
-      if systemctl list-unit-files apache2.service >/dev/null 2>&1; then
+      if _systemd_unit_exists "apache2"; then
         systemctl enable apache2 2>/dev/null || true
         if ! systemctl is-active apache2 >/dev/null 2>&1; then
           systemctl start apache2 2>/dev/null || {
@@ -914,9 +941,11 @@ _restore_reverse_proxy() {
           }
         fi
         systemctl reload apache2 2>/dev/null || true
+      else
+        log_warn "  未发现 Apache 服务单元，请手动检查"
+        ((warning_count+=1))
       fi
     fi
-    systemctl list-unit-files apache2.service >/dev/null 2>&1 && _register_restore_proxy_service "apache2"
     ((restored_count+=1))
   fi
 
