@@ -122,14 +122,24 @@ verify_checksum() {
     log_warn "校验文件不存在: ${sum_file}"
     return 1
   fi
+  local expected=""
+  expected="$(awk 'NF {print $1; exit}' "${sum_file}" 2>/dev/null)"
+  if [[ -z "${expected}" ]]; then
+    log_warn "校验文件内容无效: ${sum_file}"
+    return 1
+  fi
+
+  local actual=""
   if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "${sum_file}" --quiet 2>/dev/null
+    actual="$(sha256sum "${file}" 2>/dev/null | awk '{print $1}')"
   elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 -c "${sum_file}" --quiet 2>/dev/null
+    actual="$(shasum -a 256 "${file}" 2>/dev/null | awk '{print $1}')"
   else
     log_warn "未找到校验工具，跳过验证。"
     return 1
   fi
+
+  [[ -n "${actual}" && "${actual}" == "${expected}" ]]
 }
 
 # ---------- 加密/解密 (可选) ----------

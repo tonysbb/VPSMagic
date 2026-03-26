@@ -73,6 +73,30 @@ _extract_tar_safe() {
   tar -xzf "${archive}" -C "${target_dir}" 2>/dev/null
 }
 
+_ensure_python_venv_support() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local pm=""
+  pm="$(detect_pkg_manager)"
+  case "${pm}" in
+    apt)
+      if dpkg -s python3-venv >/dev/null 2>&1; then
+        return 0
+      fi
+      log_info "    安装 python3-venv..."
+      apt-get update -qq >/dev/null 2>&1 || true
+      apt-get install -y -qq python3-venv >/dev/null 2>&1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  dpkg -s python3-venv >/dev/null 2>&1
+}
+
 run_restore() {
   # 本地文件恢复模式 (由 migrate 或 --local 触发)
   if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
@@ -521,11 +545,14 @@ _restore_docker_standalone() {
 _restore_systemd() {
   local mod_dir="$1"
   log_step "恢复 Systemd 服务..."
+  local restored_count=0
+  local warning_count=0
 
   for svc_dir in "${mod_dir}"/*/; do
     [[ -d "${svc_dir}" ]] || continue
     local svc_name
     svc_name="$(basename "${svc_dir}")"
+    local svc_warn=0
 
     log_info "  恢复服务: ${svc_name}"
 
@@ -581,24 +608,32 @@ _restore_systemd() {
 
       log_info "    重建 Python venv: ${venv_path}"
       if command -v python3 >/dev/null 2>&1; then
-        python3 -m venv "${venv_path}" 2>/dev/null || {
-          log_warn "    venv 创建失败，请手动执行: python3 -m venv ${venv_path}"
-        }
-        # pip install from freeze
-        local req_file=""
-        if [[ -f "${svc_dir}/requirements_freeze.txt" ]]; then
-          req_file="${svc_dir}/requirements_freeze.txt"
-        elif [[ -f "${svc_dir}/requirements.txt" ]]; then
-          req_file="${svc_dir}/requirements.txt"
-        fi
-        if [[ -n "${req_file}" && -x "${venv_path}/bin/pip" ]]; then
-          log_info "    安装依赖: $(wc -l < "${req_file}" 2>/dev/null || echo '?') 个包..."
-          "${venv_path}/bin/pip" install -r "${req_file}" 2>/dev/null || {
-            log_warn "    pip install 部分失败，请检查 ${req_file}"
+        if ! _ensure_python_venv_support; then
+          log_warn "    python3-venv 不可用，请先安装后再重建: apt-get install python3-venv"
+          svc_warn=1
+        else
+          python3 -m venv "${venv_path}" 2>/dev/null || {
+            log_warn "    venv 创建失败，请手动执行: python3 -m venv ${venv_path}"
+            svc_warn=1
           }
+          # pip install from freeze
+          local req_file=""
+          if [[ -f "${svc_dir}/requirements_freeze.txt" ]]; then
+            req_file="${svc_dir}/requirements_freeze.txt"
+          elif [[ -f "${svc_dir}/requirements.txt" ]]; then
+            req_file="${svc_dir}/requirements.txt"
+          fi
+          if [[ -n "${req_file}" && -x "${venv_path}/bin/pip" ]]; then
+            log_info "    安装依赖: $(wc -l < "${req_file}" 2>/dev/null || echo '?') 个包..."
+            "${venv_path}/bin/pip" install -r "${req_file}" 2>/dev/null || {
+              log_warn "    pip install 部分失败，请检查 ${req_file}"
+              svc_warn=1
+            }
+          fi
         fi
       else
         log_warn "    python3 未安装，请先安装后手动重建 venv"
+        svc_warn=1
       fi
     fi
 
@@ -612,13 +647,23 @@ _restore_systemd() {
         systemctl enable "${svc_name}" 2>/dev/null || true
         systemctl start "${svc_name}" 2>/dev/null || {
           log_warn "    服务 ${svc_name} 启动失败"
+          svc_warn=1
         }
       fi
     fi
+
+    ((restored_count+=1))
+    ((warning_count+=svc_warn))
   done
 
   systemctl daemon-reload 2>/dev/null || true
-  summary_add "ok" "恢复 Systemd" "服务已恢复"
+  if (( restored_count == 0 )); then
+    summary_add "skip" "恢复 Systemd" "未发现可恢复服务"
+  elif (( warning_count > 0 )); then
+    summary_add "warn" "恢复 Systemd" "${restored_count} 个服务已处理，${warning_count} 个需手动检查"
+  else
+    summary_add "ok" "恢复 Systemd" "${restored_count} 个服务已恢复"
+  fi
 }
 
 _restore_reverse_proxy() {
@@ -822,11 +867,14 @@ _restore_firewall() {
 _restore_user_home() {
   local mod_dir="$1"
   log_step "恢复用户目录..."
+  local restored_users=0
+  local restored_files=0
 
   for user_dir in "${mod_dir}"/*/; do
     [[ -d "${user_dir}" ]] || continue
     local username
     username="$(basename "${user_dir}")"
+    local user_root="${user_dir%/}"
 
     if [[ ! -f "${user_dir}/user_info.env" ]]; then
       continue
@@ -851,21 +899,27 @@ _restore_user_home() {
     safe_mkdir "${home}"
 
     # 还原 dotfiles
-    find "${user_dir}" -maxdepth 2 -type f ! -name "user_info.env" ! -name "crontab.bak" | while read -r f; do
+    while IFS= read -r f; do
       local rel
-      rel="$(relative_child_path "${user_dir}" "${f}")"
+      rel="$(relative_child_path "${user_root}" "${f}")"
       if [[ -n "${rel}" ]]; then
         local target="${home}/${rel}"
         safe_mkdir "$(dirname "${target}")"
         cp -a "${f}" "${target}" 2>/dev/null || true
+        ((restored_files+=1))
       fi
-    done
+    done < <(find "${user_dir}" -type f ! -name "user_info.env" ! -name "crontab.bak")
 
     # 修正所有权
     chown -R "${username}:" "${home}" 2>/dev/null || true
+    ((restored_users+=1))
   done
 
-  summary_add "ok" "恢复用户目录" "已恢复"
+  if (( restored_users == 0 )); then
+    summary_add "skip" "恢复用户目录" "未发现可恢复用户"
+  else
+    summary_add "ok" "恢复用户目录" "${restored_users} 个用户，${restored_files} 个文件"
+  fi
 }
 
 _restore_custom_paths() {
