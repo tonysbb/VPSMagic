@@ -7,6 +7,29 @@
 [[ -n "${_COLLECTOR_SYSTEMD_LOADED:-}" ]] && return 0
 _COLLECTOR_SYSTEMD_LOADED=1
 
+_systemd_service_requires_manual_start() {
+  local svc_name="$1"
+  local svc_dir="$2"
+
+  if [[ -f "${svc_dir}/requirements_freeze.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements_freeze.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/requirements.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/_workdir_path.txt" ]] && grep -Eqi '/telegram[_-]?bot([/$]|$)' "${svc_dir}/_workdir_path.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/_program_path.txt" ]] && grep -Eqi '/telegram[_-]?bot([/$]|$)' "${svc_dir}/_program_path.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ "${svc_name}" =~ (^|[-_])bot($|[-_]) ]] && [[ -f "${svc_dir}/requirements_freeze.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements_freeze.txt" 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
+}
+
 collect_systemd_services() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/systemd"
@@ -173,6 +196,11 @@ collect_systemd_services() {
           safe_copy "${work_dir}/${cfg}" "${svc_dir}/" 2>/dev/null
         done
       fi
+    fi
+
+    if _systemd_service_requires_manual_start "${svc_name}" "${svc_dir}"; then
+      echo "START_POLICY=manual" >> "${svc_dir}/status.env"
+      echo "START_REASON=single-instance-bot" >> "${svc_dir}/status.env"
     fi
 
     ((count+=1))

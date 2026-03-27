@@ -8,6 +8,7 @@ _MODULE_RESTORE_LOADED=1
 
 _RESTORE_HEALTH_COMPOSE_DIRS=()
 _RESTORE_HEALTH_SYSTEMD_SERVICES=()
+_RESTORE_HEALTH_SYSTEMD_MANUAL=()
 _RESTORE_HEALTH_PROXY_SERVICES=()
 _RESTORE_HEALTH_EXPECT_PROXY=0
 _RESTORE_HEALTH_CHECK_USER_HOME=0
@@ -17,6 +18,7 @@ _RESTORE_SSH_PORTS=()
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
   _RESTORE_HEALTH_SYSTEMD_SERVICES=()
+  _RESTORE_HEALTH_SYSTEMD_MANUAL=()
   _RESTORE_HEALTH_PROXY_SERVICES=()
   _RESTORE_HEALTH_EXPECT_PROXY=0
   _RESTORE_HEALTH_CHECK_USER_HOME=0
@@ -97,6 +99,14 @@ _register_restore_systemd_service() {
   [[ -n "${svc}" ]] || return 0
   if ! _append_unique_line "${svc}" "${_RESTORE_HEALTH_SYSTEMD_SERVICES[@]}"; then
     _RESTORE_HEALTH_SYSTEMD_SERVICES+=("${svc}")
+  fi
+}
+
+_mark_restore_systemd_manual() {
+  local svc="$1"
+  [[ -n "${svc}" ]] || return 0
+  if ! _append_unique_line "${svc}" "${_RESTORE_HEALTH_SYSTEMD_MANUAL[@]}"; then
+    _RESTORE_HEALTH_SYSTEMD_MANUAL+=("${svc}")
   fi
 }
 
@@ -414,6 +424,10 @@ _run_restore_health_checks() {
 
   local svc=""
   for svc in "${_RESTORE_HEALTH_SYSTEMD_SERVICES[@]}"; do
+    if _append_unique_line "${svc}" "${_RESTORE_HEALTH_SYSTEMD_MANUAL[@]}"; then
+      summary_add "skip" "健康检查 / Systemd" "${svc}: $(lang_pick "已恢复，切换后手动启动" "restored; start manually after cutover")"
+      continue
+    fi
     local active_state=""
     active_state="$(systemctl is-active "${svc}" 2>/dev/null || true)"
     if [[ "${active_state}" == "active" ]]; then
@@ -579,6 +593,34 @@ _prepare_python_requirement_file() {
     $0 == "pkg_resources==0.0.0" { next }
     { print }
   ' "${source_file}" > "${target_file}"
+}
+
+_systemd_service_requires_manual_start() {
+  local svc_name="$1"
+  local svc_dir="$2"
+
+  if [[ -f "${svc_dir}/status.env" ]]; then
+    local start_policy=""
+    start_policy="$(_read_env_value "${svc_dir}/status.env" "START_POLICY")"
+    [[ "${start_policy}" == "manual" ]] && return 0
+  fi
+  if [[ -f "${svc_dir}/requirements_freeze.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements_freeze.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/requirements.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/_workdir_path.txt" ]] && grep -Eqi '/telegram[_-]?bot([/$]|$)' "${svc_dir}/_workdir_path.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ -f "${svc_dir}/_program_path.txt" ]] && grep -Eqi '/telegram[_-]?bot([/$]|$)' "${svc_dir}/_program_path.txt" 2>/dev/null; then
+    return 0
+  fi
+  if [[ "${svc_name}" =~ (^|[-_])bot($|[-_]) ]] && [[ -f "${svc_dir}/requirements_freeze.txt" ]] && grep -qi '^python-telegram-bot==' "${svc_dir}/requirements_freeze.txt" 2>/dev/null; then
+    return 0
+  fi
+
+  return 1
 }
 
 run_restore() {
@@ -1036,6 +1078,7 @@ _restore_systemd() {
   log_step "恢复 Systemd 服务..."
   local restored_count=0
   local warning_count=0
+  local deferred_count=0
 
   for svc_dir in "${mod_dir}"/*/; do
     [[ -d "${svc_dir}" ]] || continue
@@ -1133,10 +1176,18 @@ _restore_systemd() {
     # 读取状态
     if [[ -f "${svc_dir}/status.env" ]]; then
       local enabled_state=""
+      local manual_start=0
       enabled_state="$(_read_env_value "${svc_dir}/status.env" "ENABLED")"
+      if _systemd_service_requires_manual_start "${svc_name}" "${svc_dir}"; then
+        manual_start=1
+        _mark_restore_systemd_manual "${svc_name}"
+      fi
       # 恢复启用状态
       systemctl daemon-reload 2>/dev/null || true
-      if [[ "${enabled_state}" == "enabled" ]]; then
+      if (( manual_start == 1 )); then
+        log_info "    单实例服务，已恢复但不自动启动: ${svc_name}"
+        ((deferred_count+=1))
+      elif [[ "${enabled_state}" == "enabled" ]]; then
         systemctl enable "${svc_name}" 2>/dev/null || true
         systemctl start "${svc_name}" 2>/dev/null || {
           log_warn "    服务 ${svc_name} 启动失败"
@@ -1154,6 +1205,8 @@ _restore_systemd() {
     summary_add "skip" "恢复 Systemd" "未发现可恢复服务"
   elif (( warning_count > 0 )); then
     summary_add "warn" "恢复 Systemd" "${restored_count} 个服务已处理，${warning_count} 个需手动检查"
+  elif (( deferred_count > 0 )); then
+    summary_add "ok" "恢复 Systemd" "${restored_count} 个服务已恢复，${deferred_count} 个待切换后启动"
   else
     summary_add "ok" "恢复 Systemd" "${restored_count} 个服务已恢复"
   fi
