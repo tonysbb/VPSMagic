@@ -106,9 +106,38 @@ summary_add() {
   _log_to_file "[SUMMARY] ${status} | ${module} | ${detail}"
 }
 
+_summary_count_status() {
+  local target_status="$1"
+  local count=0
+  local item=""
+  local status=""
+
+  for item in "${_SUMMARY_ITEMS[@]}"; do
+    IFS='|' read -r status _ <<< "${item}"
+    [[ "${status}" == "${target_status}" ]] && ((count+=1))
+  done
+
+  printf '%s\n' "${count}"
+}
+
+summary_get_warn_count() {
+  local summary_warn_count=0
+  summary_warn_count="$(_summary_count_status "warn")"
+  if (( _WARN_COUNT > summary_warn_count )); then
+    printf '%s\n' "${_WARN_COUNT}"
+  else
+    printf '%s\n' "${summary_warn_count}"
+  fi
+}
+
 summary_render() {
   local output=""
   local sep="————————————————————"
+  local warn_count=0
+  local error_count=0
+
+  warn_count="$(summary_get_warn_count)"
+  error_count="$(summary_get_error_count)"
 
   output+="📋 $(lang_pick "VPS Magic Backup 执行摘要" "VPS Magic Backup execution summary")\n"
   output+="${sep}\n"
@@ -134,13 +163,19 @@ summary_render() {
   done
 
   output+="${sep}\n"
-  output+="⚠️ $(lang_pick "警告" "Warnings"): ${_WARN_COUNT}  ❌ $(lang_pick "错误" "Errors"): ${_ERROR_COUNT}\n"
+  output+="⚠️ $(lang_pick "警告" "Warnings"): ${warn_count}  ❌ $(lang_pick "错误" "Errors"): ${error_count}\n"
 
   echo -e "${output}"
 }
 
 summary_get_error_count() {
-  echo "${_ERROR_COUNT}"
+  local summary_error_count=0
+  summary_error_count="$(_summary_count_status "error")"
+  if (( _ERROR_COUNT > summary_error_count )); then
+    printf '%s\n' "${_ERROR_COUNT}"
+  else
+    printf '%s\n' "${summary_error_count}"
+  fi
 }
 
 # ---------- 分隔线与标题 ----------

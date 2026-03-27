@@ -125,9 +125,42 @@ _systemd_unit_exists() {
 
 _ensure_restore_apt_index() {
   if (( _RESTORE_APT_UPDATED == 0 )); then
-    apt-get update -qq >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
     _RESTORE_APT_UPDATED=1
   fi
+}
+
+_apt_install_noninteractive() {
+  DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y -qq \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    "$@" >/dev/null 2>&1
+}
+
+_install_caddy_via_official_repo() {
+  local list_file="/etc/apt/sources.list.d/caddy-stable.list"
+  local keyring_dir="/usr/share/keyrings"
+  local keyring_file="${keyring_dir}/caddy-stable-archive-keyring.gpg"
+
+  command -v apt-get >/dev/null 2>&1 || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v gpg >/dev/null 2>&1 || return 1
+
+  _ensure_restore_apt_index
+  _apt_install_noninteractive debian-keyring debian-archive-keyring apt-transport-https curl gnupg || return 1
+
+  install -m 0755 -d "${keyring_dir}" >/dev/null 2>&1 || return 1
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key | \
+    gpg --dearmor -o "${keyring_file}" >/dev/null 2>&1 || return 1
+  chmod 0644 "${keyring_file}" >/dev/null 2>&1 || true
+
+  curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+    -o "${list_file}" >/dev/null 2>&1 || return 1
+
+  _RESTORE_APT_UPDATED=0
+  _ensure_restore_apt_index
+  _apt_install_noninteractive caddy || return 1
 }
 
 _ensure_proxy_service_package() {
@@ -151,7 +184,14 @@ _ensure_proxy_service_package() {
   case "${pm}" in
     apt)
       _ensure_restore_apt_index
-      apt-get install -y -qq "${pkg}" >/dev/null 2>&1 || return 1
+      if ! _apt_install_noninteractive "${pkg}"; then
+        if [[ "${svc}" == "caddy" ]]; then
+          log_info "  默认软件源未提供 caddy，尝试添加官方仓库"
+          _install_caddy_via_official_repo || return 1
+        else
+          return 1
+        fi
+      fi
       ;;
     dnf)
       dnf install -y -q "${pkg}" >/dev/null 2>&1 || return 1
