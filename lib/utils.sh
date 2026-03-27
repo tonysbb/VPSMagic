@@ -167,9 +167,9 @@ human_size() {
   elif (( bytes < 1048576 )); then
     echo "$(( bytes / 1024 )) KB"
   elif (( bytes < 1073741824 )); then
-    printf "%.1f MB" "$(echo "scale=1; ${bytes}/1048576" | bc 2>/dev/null || echo "${bytes}")"
+    awk -v bytes="${bytes}" 'BEGIN { printf "%.1f MB", bytes / 1048576 }'
   else
-    printf "%.2f GB" "$(echo "scale=2; ${bytes}/1073741824" | bc 2>/dev/null || echo "${bytes}")"
+    awk -v bytes="${bytes}" 'BEGIN { printf "%.2f GB", bytes / 1073741824 }'
   fi
 }
 

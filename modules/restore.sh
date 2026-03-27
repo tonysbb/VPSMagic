@@ -130,6 +130,11 @@ _ensure_restore_apt_index() {
   fi
 }
 
+_apt_package_available() {
+  local pkg="$1"
+  apt-cache show "${pkg}" >/dev/null 2>&1
+}
+
 _apt_install_noninteractive() {
   DEBIAN_FRONTEND=noninteractive \
     apt-get install -y -qq \
@@ -161,6 +166,39 @@ _install_caddy_via_official_repo() {
   _RESTORE_APT_UPDATED=0
   _ensure_restore_apt_index
   _apt_install_noninteractive caddy || return 1
+}
+
+_ensure_rclone_installed() {
+  if command -v rclone >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local pm=""
+  pm="$(detect_pkg_manager)"
+  log_info "  尝试安装 rclone..."
+  case "${pm}" in
+    apt)
+      _ensure_restore_apt_index
+      if ! _apt_package_available "rclone"; then
+        return 1
+      fi
+      _apt_install_noninteractive rclone || return 1
+      ;;
+    dnf)
+      dnf install -y -q rclone >/dev/null 2>&1 || return 1
+      ;;
+    yum)
+      yum install -y -q rclone >/dev/null 2>&1 || return 1
+      ;;
+    apk)
+      apk add --quiet rclone >/dev/null 2>&1 || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  command -v rclone >/dev/null 2>&1
 }
 
 _ensure_proxy_service_package() {
@@ -424,13 +462,17 @@ _run_restore_health_checks() {
     fi
   fi
 
-  if (( _RESTORE_HEALTH_CHECK_USER_HOME == 1 )) && command -v rclone >/dev/null 2>&1; then
-    local remote_count="0"
-    remote_count="$(rclone listremotes 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
-    if (( remote_count > 0 )); then
-      summary_add "ok" "健康检查 / rclone" "${remote_count} $(lang_pick "个 remote 可用" "remotes available")"
+  if (( _RESTORE_HEALTH_CHECK_USER_HOME == 1 )); then
+    if command -v rclone >/dev/null 2>&1; then
+      local remote_count="0"
+      remote_count="$(rclone listremotes 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
+      if (( remote_count > 0 )); then
+        summary_add "ok" "健康检查 / rclone" "${remote_count} $(lang_pick "个 remote 可用" "remotes available")"
+      else
+        summary_add "warn" "健康检查 / rclone" "$(lang_pick "未发现可用 remote" "no remotes detected")"
+      fi
     else
-      summary_add "warn" "健康检查 / rclone" "$(lang_pick "未发现可用 remote" "no remotes detected")"
+      summary_add "warn" "健康检查 / rclone" "$(lang_pick "rclone 未安装" "rclone not installed")"
     fi
   fi
 }
@@ -524,6 +566,19 @@ _ensure_python_venv_support() {
   esac
 
   dpkg -s python3-venv >/dev/null 2>&1
+}
+
+_prepare_python_requirement_file() {
+  local source_file="$1"
+  local target_file="$2"
+
+  [[ -f "${source_file}" ]] || return 1
+  awk '
+    /^[[:space:]]*$/ { next }
+    /^[[:space:]]*#/ { next }
+    $0 == "pkg_resources==0.0.0" { next }
+    { print }
+  ' "${source_file}" > "${target_file}"
 }
 
 run_restore() {
@@ -1059,8 +1114,11 @@ _restore_systemd() {
             req_file="${svc_dir}/requirements.txt"
           fi
           if [[ -n "${req_file}" && -x "${venv_path}/bin/pip" ]]; then
-            log_info "    安装依赖: $(wc -l < "${req_file}" 2>/dev/null || echo '?') 个包..."
-            "${venv_path}/bin/pip" install -r "${req_file}" 2>/dev/null || {
+            local req_file_prepared="${req_file}.prepared"
+            _prepare_python_requirement_file "${req_file}" "${req_file_prepared}" || cp -f "${req_file}" "${req_file_prepared}" 2>/dev/null || true
+            log_info "    安装依赖: $(wc -l < "${req_file_prepared}" 2>/dev/null || echo '?') 个包..."
+            "${venv_path}/bin/pip" install --disable-pip-version-check -U pip setuptools wheel >/dev/null 2>&1 || true
+            "${venv_path}/bin/pip" install --disable-pip-version-check -r "${req_file_prepared}" 2>/dev/null || {
               log_warn "    pip install 部分失败，请检查 ${req_file}"
               svc_warn=1
             }
@@ -1441,6 +1499,11 @@ _restore_user_home() {
         safe_mkdir "$(dirname "${target}")"
         cp -a "${f}" "${target}" 2>/dev/null || true
         ((restored_files+=1))
+        if [[ "${rel}" == ".config/rclone/rclone.conf" ]]; then
+          if ! command -v rclone >/dev/null 2>&1; then
+            _ensure_rclone_installed >/dev/null 2>&1 || true
+          fi
+        fi
       fi
     done < <(find "${user_dir}" -type f ! -name "user_info.env" ! -name "crontab.bak")
 
