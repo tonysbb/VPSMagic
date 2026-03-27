@@ -1066,6 +1066,10 @@ _restore_reverse_proxy() {
   log_step "恢复反向代理配置..."
   local restored_count=0
   local warning_count=0
+  local deferred_count=0
+  local auto_activate_proxy=0
+  local enabled_state=""
+  local active_state=""
 
   # Nginx
   if [[ -f "${mod_dir}/nginx/etc_nginx.tar.gz" ]]; then
@@ -1074,10 +1078,15 @@ _restore_reverse_proxy() {
     log_info "  恢复 Nginx 配置..."
     if ! log_dry_run "恢复 Nginx"; then
       tar -xzf "${mod_dir}/nginx/etc_nginx.tar.gz" -C /etc 2>/dev/null || true
-      if ! _systemd_unit_exists "nginx"; then
+      enabled_state="$(_read_env_value "${mod_dir}/nginx/status.env" "ENABLED")"
+      active_state="$(_read_env_value "${mod_dir}/nginx/status.env" "ACTIVE")"
+      auto_activate_proxy=0
+      [[ "${enabled_state}" == "enabled" || "${active_state}" == "active" ]] && auto_activate_proxy=1
+
+      if (( auto_activate_proxy == 1 )) && ! _systemd_unit_exists "nginx"; then
         _ensure_proxy_service_package "nginx" || true
       fi
-      if command -v nginx >/dev/null 2>&1 && _systemd_unit_exists "nginx"; then
+      if (( auto_activate_proxy == 1 )) && command -v nginx >/dev/null 2>&1 && _systemd_unit_exists "nginx"; then
         systemctl enable nginx 2>/dev/null || true
         if ! systemctl is-active nginx >/dev/null 2>&1; then
           systemctl start nginx 2>/dev/null || {
@@ -1086,9 +1095,12 @@ _restore_reverse_proxy() {
           }
         fi
         nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
-      else
+      elif (( auto_activate_proxy == 1 )); then
         log_warn "  未发现 Nginx 服务单元，请手动检查"
         ((warning_count+=1))
+      else
+        log_info "  Nginx 在源机未启用，仅恢复配置"
+        ((deferred_count+=1))
       fi
     fi
     ((restored_count+=1))
@@ -1101,10 +1113,15 @@ _restore_reverse_proxy() {
     log_info "  恢复 Caddy 配置..."
     if ! log_dry_run "恢复 Caddy"; then
       tar -xzf "${mod_dir}/caddy/etc_caddy.tar.gz" -C /etc 2>/dev/null || true
-      if ! _systemd_unit_exists "caddy"; then
+      enabled_state="$(_read_env_value "${mod_dir}/caddy/status.env" "ENABLED")"
+      active_state="$(_read_env_value "${mod_dir}/caddy/status.env" "ACTIVE")"
+      auto_activate_proxy=0
+      [[ "${enabled_state}" == "enabled" || "${active_state}" == "active" ]] && auto_activate_proxy=1
+
+      if (( auto_activate_proxy == 1 )) && ! _systemd_unit_exists "caddy"; then
         _ensure_proxy_service_package "caddy" || true
       fi
-      if _systemd_unit_exists "caddy"; then
+      if (( auto_activate_proxy == 1 )) && _systemd_unit_exists "caddy"; then
         systemctl enable caddy 2>/dev/null || true
         if ! systemctl is-active caddy >/dev/null 2>&1; then
           systemctl start caddy 2>/dev/null || {
@@ -1113,9 +1130,12 @@ _restore_reverse_proxy() {
           }
         fi
         systemctl reload caddy 2>/dev/null || true
-      else
+      elif (( auto_activate_proxy == 1 )); then
         log_warn "  未发现 Caddy 服务单元，请手动检查"
         ((warning_count+=1))
+      else
+        log_info "  Caddy 在源机未启用，仅恢复配置"
+        ((deferred_count+=1))
       fi
     fi
     ((restored_count+=1))
@@ -1128,10 +1148,15 @@ _restore_reverse_proxy() {
     log_info "  恢复 Apache 配置..."
     if ! log_dry_run "恢复 Apache"; then
       tar -xzf "${mod_dir}/apache/etc_apache2.tar.gz" -C /etc 2>/dev/null || true
-      if ! _systemd_unit_exists "apache2"; then
+      enabled_state="$(_read_env_value "${mod_dir}/apache/status.env" "ENABLED")"
+      active_state="$(_read_env_value "${mod_dir}/apache/status.env" "ACTIVE")"
+      auto_activate_proxy=0
+      [[ "${enabled_state}" == "enabled" || "${active_state}" == "active" ]] && auto_activate_proxy=1
+
+      if (( auto_activate_proxy == 1 )) && ! _systemd_unit_exists "apache2"; then
         _ensure_proxy_service_package "apache2" || true
       fi
-      if _systemd_unit_exists "apache2"; then
+      if (( auto_activate_proxy == 1 )) && _systemd_unit_exists "apache2"; then
         systemctl enable apache2 2>/dev/null || true
         if ! systemctl is-active apache2 >/dev/null 2>&1; then
           systemctl start apache2 2>/dev/null || {
@@ -1140,9 +1165,12 @@ _restore_reverse_proxy() {
           }
         fi
         systemctl reload apache2 2>/dev/null || true
-      else
+      elif (( auto_activate_proxy == 1 )); then
         log_warn "  未发现 Apache 服务单元，请手动检查"
         ((warning_count+=1))
+      else
+        log_info "  Apache 在源机未启用，仅恢复配置"
+        ((deferred_count+=1))
       fi
     fi
     ((restored_count+=1))
@@ -1152,6 +1180,8 @@ _restore_reverse_proxy() {
     summary_add "skip" "恢复反向代理" "未发现可恢复配置"
   elif (( warning_count > 0 )); then
     summary_add "warn" "恢复反向代理" "${restored_count} 项已处理，${warning_count} 项需手动检查"
+  elif (( deferred_count > 0 )); then
+    summary_add "ok" "恢复反向代理" "${restored_count} 项配置已恢复，${deferred_count} 项未启用"
   else
     summary_add "ok" "恢复反向代理" "${restored_count} 项配置已恢复"
   fi

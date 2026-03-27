@@ -6,6 +6,24 @@
 [[ -n "${_COLLECTOR_REVERSE_PROXY_LOADED:-}" ]] && return 0
 _COLLECTOR_REVERSE_PROXY_LOADED=1
 
+_write_reverse_proxy_status() {
+  local svc_name="$1"
+  local out_file="$2"
+  local enabled_state="unknown"
+  local active_state="unknown"
+
+  if systemctl list-unit-files "${svc_name}.service" >/dev/null 2>&1 || systemctl cat "${svc_name}" >/dev/null 2>&1; then
+    enabled_state="$(systemctl is-enabled "${svc_name}" 2>/dev/null || echo "unknown")"
+    active_state="$(systemctl is-active "${svc_name}" 2>/dev/null || echo "unknown")"
+  fi
+
+  {
+    echo "SERVICE=${svc_name}"
+    echo "ENABLED=${enabled_state}"
+    echo "ACTIVE=${active_state}"
+  } > "${out_file}"
+}
+
 collect_reverse_proxy() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/reverse_proxy"
@@ -36,6 +54,7 @@ collect_reverse_proxy() {
       # Nginx 版本和模块信息
       nginx -V > "${nginx_dir}/version.txt" 2>&1 || true
       nginx -T > "${nginx_dir}/full_config.txt" 2>/dev/null || true
+      _write_reverse_proxy_status "nginx" "${nginx_dir}/status.env"
       found=1
     fi
   fi
@@ -59,6 +78,7 @@ collect_reverse_proxy() {
         safe_copy "${cf}" "${caddy_dir}/" 2>/dev/null
       done
       caddy version > "${caddy_dir}/version.txt" 2>/dev/null || true
+      _write_reverse_proxy_status "caddy" "${caddy_dir}/status.env"
       found=1
     fi
   fi
@@ -84,6 +104,7 @@ collect_reverse_proxy() {
       if [[ -d "/etc/httpd" ]]; then
         tar -czf "${apache_dir}/etc_httpd.tar.gz" -C /etc httpd 2>/dev/null || true
       fi
+      _write_reverse_proxy_status "apache2" "${apache_dir}/status.env"
       found=1
     fi
   fi
