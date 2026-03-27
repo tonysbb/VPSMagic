@@ -12,6 +12,7 @@ _RESTORE_HEALTH_PROXY_SERVICES=()
 _RESTORE_HEALTH_EXPECT_PROXY=0
 _RESTORE_HEALTH_CHECK_USER_HOME=0
 _RESTORE_APT_UPDATED=0
+_RESTORE_SSH_PORTS=()
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -20,6 +21,7 @@ _reset_restore_health_checks() {
   _RESTORE_HEALTH_EXPECT_PROXY=0
   _RESTORE_HEALTH_CHECK_USER_HOME=0
   _RESTORE_APT_UPDATED=0
+  _RESTORE_SSH_PORTS=()
 }
 
 _append_unique_line() {
@@ -30,6 +32,56 @@ _append_unique_line() {
     [[ "${existing}" == "${value}" ]] && return 0
   done
   return 1
+}
+
+_read_configured_ssh_ports() {
+  local file=""
+  local line=""
+  local port=""
+
+  for file in /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf; do
+    [[ -f "${file}" ]] || continue
+    while IFS= read -r line; do
+      [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+      if [[ "${line}" =~ ^[[:space:]]*Port[[:space:]]+([0-9]+) ]]; then
+        port="${BASH_REMATCH[1]}"
+        [[ -n "${port}" ]] && printf '%s\n' "${port}"
+      fi
+    done < "${file}"
+  done
+}
+
+_snapshot_restore_ssh_ports() {
+  local -a detected=()
+  local line=""
+  local port=""
+
+  if command -v ss >/dev/null 2>&1; then
+    while IFS= read -r line; do
+      [[ "${line}" == *"sshd"* ]] || continue
+      if [[ "${line}" =~ (^|[:.])([0-9]+)[[:space:]] ]]; then
+        port="${BASH_REMATCH[2]}"
+        if [[ -n "${port}" ]] && ! _append_unique_line "${port}" "${detected[@]}"; then
+          detected+=("${port}")
+        fi
+      fi
+    done < <(ss -ltnp 2>/dev/null)
+  fi
+
+  if (( ${#detected[@]} == 0 )); then
+    while IFS= read -r port; do
+      [[ "${port}" =~ ^[0-9]+$ ]] || continue
+      if ! _append_unique_line "${port}" "${detected[@]}"; then
+        detected+=("${port}")
+      fi
+    done < <(_read_configured_ssh_ports)
+  fi
+
+  if (( ${#detected[@]} == 0 )); then
+    detected=("22")
+  fi
+
+  _RESTORE_SSH_PORTS=("${detected[@]}")
 }
 
 _register_restore_compose_dir() {
@@ -118,6 +170,37 @@ _ensure_proxy_service_package() {
   _systemd_unit_exists "${svc}"
 }
 
+_preserve_ssh_access_after_firewall_restore() {
+  local port=""
+  local preserved=0
+
+  for port in "${_RESTORE_SSH_PORTS[@]}"; do
+    [[ "${port}" =~ ^[0-9]+$ ]] || continue
+
+    if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi '^Status: active'; then
+      ufw allow "${port}/tcp" >/dev/null 2>&1 || true
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+      iptables -C INPUT -p tcp --dport "${port}" -j ACCEPT >/dev/null 2>&1 || \
+        iptables -I INPUT 1 -p tcp --dport "${port}" -j ACCEPT >/dev/null 2>&1 || true
+    fi
+
+    if command -v ip6tables >/dev/null 2>&1; then
+      ip6tables -C INPUT -p tcp --dport "${port}" -j ACCEPT >/dev/null 2>&1 || \
+        ip6tables -I INPUT 1 -p tcp --dport "${port}" -j ACCEPT >/dev/null 2>&1 || true
+    fi
+
+    ((preserved+=1))
+  done
+
+  if (( preserved > 0 )); then
+    summary_add "ok" "恢复 SSH 访问" "$(lang_pick "保留端口" "preserved ports"): $(IFS=,; echo "${_RESTORE_SSH_PORTS[*]}")"
+  else
+    summary_add "warn" "恢复 SSH 访问" "$(lang_pick "未识别当前 SSH 端口" "current SSH ports not detected")"
+  fi
+}
+
 _find_compose_file() {
   local project_dir="$1"
   local candidate=""
@@ -141,6 +224,45 @@ _port_is_listening() {
   else
     return 1
   fi
+}
+
+_collect_proxy_listener_services() {
+  local out_var="$1"
+  local -a detected=()
+  local line=""
+  local source_cmd=""
+
+  if command -v ss >/dev/null 2>&1; then
+    source_cmd="ss -ltnp 2>/dev/null"
+  elif command -v netstat >/dev/null 2>&1; then
+    source_cmd="netstat -ltnp 2>/dev/null"
+  else
+    eval "${out_var}=()"
+    return 0
+  fi
+
+  while IFS= read -r line; do
+    [[ "${line}" =~ (^|[[:space:]])LISTEN([[:space:]]|$) ]] || continue
+    [[ "${line}" =~ (^|[:.])(80|443)([[:space:]]|$) ]] || continue
+
+    if [[ "${line}" == *"apache2"* ]]; then
+      if ! _append_unique_line "apache2" "${detected[@]}"; then
+        detected+=("apache2")
+      fi
+    fi
+    if [[ "${line}" == *"nginx"* ]]; then
+      if ! _append_unique_line "nginx" "${detected[@]}"; then
+        detected+=("nginx")
+      fi
+    fi
+    if [[ "${line}" == *"caddy"* ]]; then
+      if ! _append_unique_line "caddy" "${detected[@]}"; then
+        detected+=("caddy")
+      fi
+    fi
+  done < <(eval "${source_cmd}")
+
+  eval "${out_var}=(\"\${detected[@]}\")"
 }
 
 _collect_compose_published_ports() {
@@ -223,11 +345,29 @@ _run_restore_health_checks() {
     fi
   done
 
+  local -a proxy_listener_svcs=()
+  _collect_proxy_listener_services proxy_listener_svcs
+
+  local active_proxy_count=0
+  for svc in "${_RESTORE_HEALTH_PROXY_SERVICES[@]}"; do
+    local active_state=""
+    active_state="$(systemctl is-active "${svc}" 2>/dev/null || true)"
+    if [[ "${active_state}" == "active" ]]; then
+      ((active_proxy_count+=1))
+    elif _append_unique_line "${svc}" "${proxy_listener_svcs[@]}"; then
+      ((active_proxy_count+=1))
+    fi
+  done
+
   for svc in "${_RESTORE_HEALTH_PROXY_SERVICES[@]}"; do
     local active_state=""
     active_state="$(systemctl is-active "${svc}" 2>/dev/null || true)"
     if [[ "${active_state}" == "active" ]]; then
       summary_add "ok" "健康检查 / 反向代理" "${svc}: active"
+    elif _append_unique_line "${svc}" "${proxy_listener_svcs[@]}"; then
+      summary_add "ok" "健康检查 / 反向代理" "${svc}: $(lang_pick "监听 80/443" "listening on 80/443")"
+    elif (( active_proxy_count > 0 )); then
+      summary_add "skip" "健康检查 / 反向代理" "${svc}: $(lang_pick "配置已恢复，当前未启用" "restored but not enabled")"
     else
       summary_add "warn" "健康检查 / 反向代理" "${svc}: ${active_state:-unknown}"
     fi
@@ -348,6 +488,7 @@ _ensure_python_venv_support() {
 
 run_restore() {
   _reset_restore_health_checks
+  _snapshot_restore_ssh_ports
   # 本地文件恢复模式 (由 migrate 或 --local 触发)
   if [[ -n "${RESTORE_LOCAL_FILE:-}" ]]; then
     _restore_from_local "${RESTORE_LOCAL_FILE}"
@@ -1176,6 +1317,10 @@ _restore_firewall() {
     fi
   fi
 
+  if ! log_dry_run "保留 SSH 访问"; then
+    _preserve_ssh_access_after_firewall_restore
+  fi
+
   summary_add "ok" "恢复防火墙" "规则已恢复"
 }
 
@@ -1219,6 +1364,10 @@ _restore_user_home() {
       rel="$(relative_child_path "${user_root}" "${f}")"
       if [[ -n "${rel}" ]]; then
         local target="${home}/${rel}"
+        if [[ "${rel}" == ".ssh/authorized_keys" ]]; then
+          log_info "    保留当前 authorized_keys: ${target}"
+          continue
+        fi
         safe_mkdir "$(dirname "${target}")"
         cp -a "${f}" "${target}" 2>/dev/null || true
         ((restored_files+=1))
@@ -1275,6 +1424,7 @@ _restore_from_local() {
   local start_ts
   start_ts="$(date +%s)"
   _reset_restore_health_checks
+  _snapshot_restore_ssh_ports
 
   log_banner "$(lang_pick "VPS Magic Backup — 恢复模式 (本地文件)" "VPS Magic Backup — Restore Mode (Local File)")"
 
