@@ -75,6 +75,98 @@
 
 后续联调与改进，均应以本节标准作为验收基线。
 
+## ✅ 最近联调结论与迁移注意事项
+
+以下结论来自一轮真实的跨机恢复联调：源机为 `NCPDE`，目标机为接近空机状态的 `WAWHK`，实际验证了 `openlist`、`aria2`、`pdfmaker`、`caddy`、`rclone`、`downnow-bot` 等链路。
+
+### 已验证通过的恢复能力
+
+1. **SSH 不锁死**
+   - 恢复前会记录目标机当前 SSH 监听端口
+   - 恢复防火墙后会优先保活该端口
+   - 恢复 `user_home` 时会保留目标机现有 `authorized_keys`，避免把源机登录入口覆盖到目标机
+
+2. **空机恢复后可自动拉起主业务**
+   - `Docker Compose` 项目可自动恢复并启动
+   - `Caddy` 可在干净 APT 环境中自动补仓库、安装并拉起
+   - `rclone` 配置可恢复，缺失时会尝试自动安装 `rclone`
+   - Python `venv` 与依赖恢复已做兼容处理，可过滤无效冻结项并自动补 `pip/setuptools/wheel`
+
+3. **反向代理跟随源机真实状态**
+   - 恢复时只会自动拉起源机真实启用的反向代理
+   - 不会因为历史残留配置把目标机错误带成 `apache2`
+
+4. **恢复摘要与健康检查已收紧**
+   - 会检查 Compose 运行数、端口监听、反向代理、`rclone`
+   - 新增 `Compose 出网` 检查，避免把容器网络故障误判成挂载或 token 故障
+
+### 当前推荐的迁移切换流程
+
+1. 在源机完成一次最新备份
+2. 在目标机执行 `vpsmagic restore` 或 `vpsmagic restore --local`
+3. 先验证：
+   - Compose 容器是否全部 `running`
+   - `caddy` 是否 `active`
+   - `80/443` 是否监听
+   - `rclone listremotes` 是否可用
+4. 再切 DNS
+5. 对单实例服务，最后执行人工切换
+
+### 仍需人工参与的事项
+
+1. **单实例 Systemd 服务**
+   - 典型如 Telegram 轮询 bot
+   - 恢复时默认只恢复，不自动启动
+   - 切换时应先停源机，再启目标机
+
+   ```bash
+   # 源机
+   systemctl stop downnow-bot
+
+   # 目标机
+   systemctl start downnow-bot
+   journalctl -u downnow-bot -n 30 --no-pager
+   ```
+
+2. **DNS 切换后的证书签发窗口**
+   - `caddy` 首次在目标机申请证书时，Cloudflare 场景下可能短暂出现 `525 SSL handshake failed`
+   - 应先查看 `journalctl -u caddy`，确认 ACME 挑战是否已成功
+   - 本轮联调中，`pan.shechu.top` 与 `pdf.shechu.top` 在证书签发完成后恢复正常访问
+
+### 这轮联调踩到的关键坑
+
+1. **不要把“前台 502 / 挂载像失效 / bot 上传异常”直接等同于 token 或挂载故障**
+   - 本轮中出现过：
+     - `openlist` 进程正常
+     - `5244` 正常监听
+     - 宿主机可访问外部 HTTPS
+     - 但容器内访问外部 HTTPS 全超时
+   - 这类情况的根因是 Docker bridge 出网异常，不是挂载本身失效
+
+2. **恢复顺序会影响 Docker 出网**
+   - 如果先启动 Compose，再恢复防火墙，后者可能覆盖 Docker 写入的转发/NAT 规则
+   - 现已调整为：**先恢复防火墙，再恢复 Compose**
+
+3. **迁移后旧默认网络和旧任务会污染判断**
+   - 现已在 Compose 恢复前主动：
+     - `docker compose down --remove-orphans`
+     - 删除 `${project}_default`
+     - `docker compose up -d --force-recreate`
+   - 同时新增 `健康检查 / Compose 出网`
+
+### 当前可接受的验收标准
+
+如果恢复摘要同时满足以下条件，可认为主业务恢复已基本达标：
+
+- `Restore Docker Compose: restored`
+- `健康检查 / Docker Compose: ... running`
+- `健康检查 / Compose 端口: ...`
+- `健康检查 / Compose 出网: ... ok`
+- `健康检查 / 反向代理: caddy: active`
+- `健康检查 / 代理端口: 80,443`
+- `健康检查 / rclone: ... remotes available`
+- `Warnings: 0`
+
 ## 📁 项目结构
 
 ```

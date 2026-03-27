@@ -376,6 +376,75 @@ _collect_compose_published_ports() {
   eval "${out_var}=(\"\${collected[@]}\")"
 }
 
+_docker_exec_https_probe() {
+  local container_name="$1"
+  [[ -n "${container_name}" ]] || return 1
+
+  if docker exec "${container_name}" sh -lc 'command -v curl >/dev/null 2>&1' >/dev/null 2>&1; then
+    docker exec "${container_name}" sh -lc 'curl -fsSIL --max-time 8 https://www.cloudflare.com/cdn-cgi/trace >/dev/null' >/dev/null 2>&1
+    return $?
+  fi
+
+  if docker exec "${container_name}" sh -lc 'command -v wget >/dev/null 2>&1' >/dev/null 2>&1; then
+    docker exec "${container_name}" sh -lc 'wget -T 8 -q --spider https://www.cloudflare.com/cdn-cgi/trace' >/dev/null 2>&1
+    return $?
+  fi
+
+  return 2
+}
+
+_collect_compose_container_names() {
+  local compose_project="$1"
+  local out_var="$2"
+  local -a collected=()
+  local container_name=""
+
+  while IFS= read -r container_name; do
+    [[ -n "${container_name}" ]] || continue
+    collected+=("${container_name}")
+  done < <(docker ps --format '{{.Names}}' --filter "label=com.docker.compose.project=${compose_project}" 2>/dev/null)
+
+  eval "${out_var}=(\"\${collected[@]}\")"
+}
+
+_order_restore_modules() {
+  local input_var="$1"
+  local output_var="$2"
+  local -n _restore_in="${input_var}"
+  local -n _restore_out="${output_var}"
+  local -a preferred_order=(
+    crontab
+    custom_paths
+    firewall
+    docker_compose
+    docker_standalone
+    reverse_proxy
+    database
+    ssl_certs
+    systemd
+    user_home
+  )
+  local -a ordered=()
+  local preferred=""
+  local existing=""
+
+  for preferred in "${preferred_order[@]}"; do
+    for existing in "${_restore_in[@]}"; do
+      [[ "${existing}" == "${preferred}" ]] || continue
+      ordered+=("${existing}")
+      break
+    done
+  done
+
+  for existing in "${_restore_in[@]}"; do
+    if ! _append_unique_line "${existing}" "${ordered[@]}"; then
+      ordered+=("${existing}")
+    fi
+  done
+
+  _restore_out=("${ordered[@]}")
+}
+
 _run_restore_health_checks() {
   if [[ "${DRY_RUN:-0}" == "1" ]]; then
     return 0
@@ -418,6 +487,29 @@ _run_restore_health_checks() {
         summary_add "ok" "健康检查 / Compose 端口" "${compose_project}: $(IFS=,; echo "${listening_ports[*]}")"
       else
         summary_add "warn" "健康检查 / Compose 端口" "${compose_project}: $(IFS=,; echo "${listening_ports[*]:-none}") / $(IFS=,; echo "${published_ports[*]}")"
+      fi
+    fi
+
+    local -a compose_containers=()
+    _collect_compose_container_names "${compose_project}" compose_containers
+    if (( ${#compose_containers[@]} > 0 )); then
+      local probe_result=2
+      local probe_container=""
+      for probe_container in "${compose_containers[@]}"; do
+        if _docker_exec_https_probe "${probe_container}"; then
+          probe_result=0
+        else
+          probe_result=$?
+        fi
+        if (( probe_result == 0 || probe_result == 1 )); then
+          break
+        fi
+      done
+
+      if (( probe_result == 0 )); then
+        summary_add "ok" "健康检查 / Compose 出网" "${compose_project}: ok"
+      elif (( probe_result == 1 )); then
+        summary_add "warn" "健康检查 / Compose 出网" "${compose_project}: $(lang_pick "容器内 HTTPS 出网失败，优先检查 Docker 网络" "container HTTPS egress failed; check Docker network first")"
       fi
     fi
   done
@@ -819,6 +911,7 @@ run_restore() {
   echo
   echo -e "${_CLR_BOLD}$(lang_pick "备份包含以下模块" "Backup contains these modules"):${_CLR_NC}"
   local -a restore_modules=()
+  local -a ordered_restore_modules=()
   for dir in "${backup_data_dir}"/*/; do
     [[ -d "${dir}" ]] || continue
     local mod_name
@@ -838,10 +931,12 @@ run_restore() {
     log_info "$(lang_pick "自动确认模式，跳过交互。" "Auto-confirm mode enabled. Skipping prompt.")"
   fi
 
+  _order_restore_modules restore_modules ordered_restore_modules
+
   # ==================== 第7步: 执行恢复 ====================
   log_step "$(lang_pick "第7步: 执行恢复..." "Step 7: Run restore...")"
 
-  for mod in "${restore_modules[@]}"; do
+  for mod in "${ordered_restore_modules[@]}"; do
     local mod_dir="${backup_data_dir}/${mod}"
     echo
     case "${mod}" in
@@ -1011,7 +1106,13 @@ _restore_docker_compose() {
 
     # 启动项目（在权限恢复之后）
     log_info "  启动项目: ${compose_project_name}"
-    (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d 2>/dev/null) || {
+    (
+      cd "${original_path}" && \
+      docker compose down --remove-orphans 2>/dev/null || true
+    )
+    log_info "  重建默认网络: ${compose_project_name}_default"
+    docker network rm "${compose_project_name}_default" >/dev/null 2>&1 || true
+    (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d --force-recreate 2>/dev/null) || {
       log_warn "  项目 ${compose_project_name} 启动失败，请手动检查"
     }
     _register_restore_compose_dir "${original_path}"
@@ -1708,6 +1809,7 @@ _restore_from_local() {
   echo
   echo -e "${_CLR_BOLD}$(lang_pick "备份包含以下模块" "Backup contains these modules"):${_CLR_NC}"
   local -a restore_modules=()
+  local -a ordered_restore_modules=()
   for dir in "${backup_data_dir}"/*/; do
     [[ -d "${dir}" ]] || continue
     local mod_name
@@ -1727,10 +1829,12 @@ _restore_from_local() {
     log_info "$(lang_pick "自动确认模式，开始恢复。" "Auto-confirm mode enabled. Starting restore.")"
   fi
 
+  _order_restore_modules restore_modules ordered_restore_modules
+
   # ==================== 执行恢复 ====================
   log_step "$(lang_pick "第5步: 执行恢复..." "Step 5: Run restore...")"
 
-  for mod in "${restore_modules[@]}"; do
+  for mod in "${ordered_restore_modules[@]}"; do
     local mod_dir="${backup_data_dir}/${mod}"
     echo
     case "${mod}" in
