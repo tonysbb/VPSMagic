@@ -28,6 +28,7 @@ RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 RCLONE_CONF="${RCLONE_CONF:-}"
 RCLONE_BW_LIMIT="${RCLONE_BW_LIMIT:-}"
 RESTORE_ROLLBACK_ON_FAILURE="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
+RESTORE_SOURCE_HOSTNAME="${RESTORE_SOURCE_HOSTNAME:-}"
 
 # 通知
 NOTIFY_ENABLED="${NOTIFY_ENABLED:-false}"
@@ -79,7 +80,7 @@ _is_allowed_config_key() {
   local key="$1"
   case "${key}" in
     VPSMAGIC_HOME|BACKUP_ROOT|BACKUP_KEEP_LOCAL|BACKUP_KEEP_REMOTE|BACKUP_PREFIX|BACKUP_ENCRYPTION_KEY|BACKUP_DESTINATION|BACKUP_REMOTE_OVERRIDE|\
-    BACKUP_TARGETS|BACKUP_PRIMARY_TARGET|BACKUP_ASYNC_TARGET|BACKUP_INTERACTIVE_TARGETS|RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|RESTORE_ROLLBACK_ON_FAILURE|\
+    BACKUP_TARGETS|BACKUP_PRIMARY_TARGET|BACKUP_ASYNC_TARGET|BACKUP_INTERACTIVE_TARGETS|RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|RESTORE_ROLLBACK_ON_FAILURE|RESTORE_SOURCE_HOSTNAME|\
     NOTIFY_ENABLED|TG_BOT_TOKEN|TG_CHAT_ID|\
     ENABLE_DOCKER_COMPOSE|ENABLE_DOCKER_STANDALONE|ENABLE_SYSTEMD|ENABLE_REVERSE_PROXY|ENABLE_DATABASE|\
     ENABLE_SSL_CERTS|ENABLE_CRONTAB|ENABLE_FIREWALL|ENABLE_USER_HOME|ENABLE_CUSTOM_PATHS|\
@@ -217,7 +218,11 @@ validate_config() {
   local target=""
   local found=0
 
-  get_backup_targets configured_targets
+  if [[ "${mode}" == "restore" ]]; then
+    get_restore_targets configured_targets
+  else
+    get_backup_targets configured_targets
+  fi
 
   case "${mode}" in
     backup|upload)
@@ -258,7 +263,11 @@ validate_config() {
 
   if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
     local expanded_primary=""
-    expanded_primary="$(get_backup_primary_target)"
+    if [[ "${mode}" == "restore" ]]; then
+      expanded_primary="$(get_restore_primary_target)"
+    else
+      expanded_primary="$(get_backup_primary_target)"
+    fi
     if [[ -n "${expanded_primary}" && ${#configured_targets[@]} -gt 0 ]]; then
       found=0
       for target in "${configured_targets[@]}"; do
@@ -276,7 +285,11 @@ validate_config() {
 
   if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
     local expanded_async=""
-    expanded_async="$(get_backup_async_target)"
+    if [[ "${mode}" == "restore" ]]; then
+      expanded_async="$(expand_backup_target_template_with_host "${BACKUP_ASYNC_TARGET}" "$(get_restore_source_hostname)")"
+    else
+      expanded_async="$(get_backup_async_target)"
+    fi
     if [[ -n "${expanded_async}" && ${#configured_targets[@]} -gt 0 ]]; then
       found=0
       for target in "${configured_targets[@]}"; do
@@ -368,12 +381,68 @@ get_backup_targets() {
   )"
 }
 
-expand_backup_target_template() {
+get_current_hostname() {
+  hostname 2>/dev/null || echo 'vps'
+}
+
+expand_backup_target_template_with_host() {
   local target="${1:-}"
-  local host_name=""
-  host_name="$(hostname 2>/dev/null || echo 'vps')"
+  local host_name="${2:-}"
+  [[ -n "${host_name}" ]] || host_name="$(get_current_hostname)"
   target="${target//\{hostname\}/${host_name}}"
   printf '%s\n' "${target}"
+}
+
+expand_backup_target_template() {
+  local target="${1:-}"
+  expand_backup_target_template_with_host "${target}" "$(get_current_hostname)"
+}
+
+get_restore_source_hostname() {
+  if [[ -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
+    printf '%s\n' "${RESTORE_SOURCE_HOSTNAME}"
+  else
+    get_current_hostname
+  fi
+}
+
+get_restore_targets() {
+  local result_var="$1"
+  eval "${result_var}=()"
+  local restore_host=""
+  restore_host="$(get_restore_source_hostname)"
+
+  if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" ]]; then
+    local override_expanded=""
+    override_expanded="$(expand_backup_target_template_with_host "${BACKUP_REMOTE_OVERRIDE}" "${restore_host}")"
+    eval "${result_var}+=(\"\${override_expanded}\")"
+    return 0
+  fi
+
+  if [[ -n "${BACKUP_TARGETS:-}" ]]; then
+    local -a raw_targets=()
+    parse_list "${BACKUP_TARGETS}" raw_targets
+    local raw_target=""
+    for raw_target in "${raw_targets[@]}"; do
+      local expanded_target=""
+      expanded_target="$(expand_backup_target_template_with_host "${raw_target}" "${restore_host}")"
+      eval "${result_var}+=(\"\${expanded_target}\")"
+    done
+    return 0
+  fi
+
+  if [[ -n "${RCLONE_REMOTE:-}" ]]; then
+    local legacy_expanded=""
+    legacy_expanded="$(expand_backup_target_template_with_host "${RCLONE_REMOTE}" "${restore_host}")"
+    eval "${result_var}+=(\"\${legacy_expanded}\")"
+    return 0
+  fi
+
+  eval "${result_var}+=(
+    \"gdrive:VPSMagicBackup/${restore_host}\"
+    \"onedrive:VPSMagicBackup/${restore_host}\"
+    \"openlist_webdav:backup/${restore_host}\"
+  )"
 }
 
 get_backup_primary_target() {
@@ -388,6 +457,18 @@ get_backup_primary_target() {
   fi
 }
 
+get_restore_primary_target() {
+  if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
+    expand_backup_target_template_with_host "${BACKUP_PRIMARY_TARGET}" "$(get_restore_source_hostname)"
+    return 0
+  fi
+  local -a restore_targets=()
+  get_restore_targets restore_targets
+  if (( ${#restore_targets[@]} > 0 )); then
+    printf '%s\n' "${restore_targets[0]}"
+  fi
+}
+
 get_backup_async_target() {
   if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
     expand_backup_target_template "${BACKUP_ASYNC_TARGET}"
@@ -398,7 +479,11 @@ get_backup_async_target() {
 # ---------- 打印当前配置 ----------
 print_config() {
   local -a backup_targets=()
-  get_backup_targets backup_targets
+  if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+    get_restore_targets backup_targets
+  else
+    get_backup_targets backup_targets
+  fi
 
   echo
   echo -e "${_CLR_BOLD}$(lang_pick "当前配置" "Current configuration"):${_CLR_NC}"
@@ -412,10 +497,21 @@ print_config() {
     ((idx+=1))
   done
   if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
-    echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_backup_primary_target)"
+    if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+      echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_restore_primary_target)"
+    else
+      echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_backup_primary_target)"
+    fi
   fi
   if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
-    echo "  $(lang_pick "异步副本目标" "Async replica target"): $(get_backup_async_target)"
+    if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+      echo "  $(lang_pick "异步副本目标" "Async replica target"): $(expand_backup_target_template_with_host "${BACKUP_ASYNC_TARGET}" "$(get_restore_source_hostname)")"
+    else
+      echo "  $(lang_pick "异步副本目标" "Async replica target"): $(get_backup_async_target)"
+    fi
+  fi
+  if [[ -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
+    echo "  $(lang_pick "恢复源主机名" "Restore source hostname"): ${RESTORE_SOURCE_HOSTNAME}"
   fi
   echo "  $(lang_pick "远端交互选择" "Interactive remote selection"): ${BACKUP_INTERACTIVE_TARGETS}"
   echo "  $(lang_pick "失败后自动回滚" "Auto rollback on failure"): ${RESTORE_ROLLBACK_ON_FAILURE}"

@@ -719,6 +719,66 @@ _list_remote_backup_archives() {
   return 0
 }
 
+_extract_rclone_remote_name() {
+  local target="${1:-}"
+  printf '%s\n' "${target%%:*}"
+}
+
+_rclone_remote_exists() {
+  local remote_name="$1"
+  shift
+  local line=""
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    [[ "${line%:}" == "${remote_name}" ]] && return 0
+  done < <(rclone "$@" listremotes 2>/dev/null || true)
+  return 1
+}
+
+_remote_uses_oci_credentials() {
+  local remote_name="$1"
+  shift
+
+  if [[ "${remote_name}" =~ ^([Oo][Oo][Ss]|oci|oracle) ]]; then
+    return 0
+  fi
+
+  local remote_cfg=""
+  remote_cfg="$(rclone "$@" config show "${remote_name}" 2>/dev/null || true)"
+  grep -Eqi 'provider[[:space:]]*=[[:space:]]*oci|namespace[[:space:]]*=' <<< "${remote_cfg}"
+}
+
+_preflight_restore_remote_target() {
+  local remote_target="$1"
+  local err_var="$2"
+  local -a rclone_opts=()
+  _build_restore_rclone_opts rclone_opts
+
+  local remote_name=""
+  remote_name="$(_extract_rclone_remote_name "${remote_target}")"
+  if [[ -z "${remote_name}" || "${remote_name}" == "${remote_target}" ]]; then
+    printf -v "${err_var}" '%s' "$(lang_pick "远端路径格式无效，应为 remote:path" "invalid remote path format; expected remote:path")"
+    return 1
+  fi
+
+  if ! _rclone_remote_exists "${remote_name}" "${rclone_opts[@]}"; then
+    local conf_path="${RCLONE_CONF:-${HOME}/.config/rclone/rclone.conf}"
+    printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})"
+    return 1
+  fi
+
+  if _remote_uses_oci_credentials "${remote_name}" "${rclone_opts[@]}"; then
+    local oci_conf="${OCI_CLI_CONFIG_FILE:-${HOME}/.oci/config}"
+    if [[ ! -f "${oci_conf}" ]]; then
+      printf -v "${err_var}" '%s' "$(lang_pick "OCI 凭据缺失" "OCI credentials are missing"): ${oci_conf}"
+      return 1
+    fi
+  fi
+
+  printf -v "${err_var}" '%s' ""
+  return 0
+}
+
 _order_restore_modules() {
   local input_var="$1"
   local output_var="$2"
@@ -1099,7 +1159,7 @@ run_restore() {
   fi
 
   local -a restore_targets=()
-  get_backup_targets restore_targets
+  get_restore_targets restore_targets
   if [[ ${#restore_targets[@]} -eq 0 ]]; then
     log_error "$(lang_pick "未找到可用的远端恢复目标。请设置 BACKUP_TARGETS 或 RCLONE_REMOTE。" "No remote restore target found. Please set BACKUP_TARGETS or RCLONE_REMOTE.")"
     log_info "$(lang_pick "如果要从本地文件恢复，请使用" "To restore from a local file, use"): vpsmagic restore --local <file>"
@@ -1111,7 +1171,7 @@ run_restore() {
 
   local selected_restore_remote=""
   local preferred_restore_remote=""
-  preferred_restore_remote="$(get_backup_primary_target)"
+  preferred_restore_remote="$(get_restore_primary_target)"
   local interactive_targets="${BACKUP_INTERACTIVE_TARGETS:-true}"
   if [[ "${interactive_targets}" == "true" && -t 0 && ${#restore_targets[@]} -gt 0 ]]; then
     echo
@@ -1147,6 +1207,7 @@ run_restore() {
   local -a available_backups=()
   local -a available_backup_remotes=()
   local -a remote_search_order=()
+  local primary_remote_problem=0
   remote_search_order+=("${selected_restore_remote}")
   for remote in "${restore_targets[@]}"; do
     if [[ "${remote}" != "${selected_restore_remote}" ]]; then
@@ -1157,9 +1218,20 @@ run_restore() {
   for remote in "${remote_search_order[@]}"; do
     local -a remote_files=()
     local remote_error=""
+    if ! _preflight_restore_remote_target "${remote}" remote_error; then
+      log_warn "$(lang_pick "远端预检查失败" "Remote preflight failed"): ${remote}"
+      [[ -n "${remote_error}" ]] && log_warn "  ${remote_error}"
+      if [[ "${remote}" == "${selected_restore_remote}" ]]; then
+        primary_remote_problem=1
+      fi
+      continue
+    fi
     if ! _list_remote_backup_archives "${remote}" remote_files remote_error; then
       log_warn "$(lang_pick "远端访问失败" "Remote access failed"): ${remote}"
       [[ -n "${remote_error}" ]] && log_warn "  ${remote_error}"
+      if [[ "${remote}" == "${selected_restore_remote}" ]]; then
+        primary_remote_problem=1
+      fi
       continue
     fi
 
@@ -1170,7 +1242,11 @@ run_restore() {
 
     if (( ${#available_backups[@]} > 0 )); then
       if [[ "${remote}" != "${selected_restore_remote}" ]]; then
-        log_info "$(lang_pick "主远端无备份，已切换到" "No backup found in the primary remote. Falling back to"): ${remote}"
+        if (( primary_remote_problem == 1 )); then
+          log_info "$(lang_pick "主远端不可用，已切换到" "Primary remote unavailable. Falling back to"): ${remote}"
+        else
+          log_info "$(lang_pick "主远端无备份，已切换到" "No backup found in the primary remote. Falling back to"): ${remote}"
+        fi
       fi
       break
     fi

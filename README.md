@@ -408,6 +408,7 @@ vpsmagic migrate root@new-vps --skip-restore
 | `BACKUP_ASYNC_TARGET` | (可选) | 备份完成后异步复制一份的目标，例如 `R2:mybucket/vpsmagic/{hostname}` |
 | `BACKUP_INTERACTIVE_TARGETS` | `true` | 备份/恢复前是否先列出可选远端路径并允许用户交互选择 |
 | `RESTORE_ROLLBACK_ON_FAILURE` | `false` | `restore --rollback-on-failure` 的默认行为开关；开启后恢复失败将自动执行轻量回滚 |
+| `RESTORE_SOURCE_HOSTNAME` | (可选) | 跨机恢复时用于展开 `{hostname}` 的源主机名，例如 `NCPDE` |
 | `RCLONE_REMOTE` | (兼容旧配置) | 单一路径，未设置 `BACKUP_TARGETS` 时使用 |
 | `BACKUP_ROOT` | `/opt/vpsmagic/backups` | 本地备份目录 |
 | `BACKUP_KEEP_LOCAL` | `3` | 本地保留份数 |
@@ -415,6 +416,32 @@ vpsmagic migrate root@new-vps --skip-restore
 | `BACKUP_DESTINATION` | `remote` | 默认备份模式，可选 `remote` 或 `local` |
 | `BACKUP_ENCRYPTION_KEY` | (空) | AES-256 加密密钥，留空不加密 |
 | `UI_LANG` | `zh` | 界面语言，可选 `zh` 或 `en` |
+
+### 当前行为说明
+
+- 备份总是先执行本地归档。
+- 交互模式下会先询问是否启用云端备份。
+- 云端备份会列出 `BACKUP_TARGETS` 中的完整远端路径，默认选中 `BACKUP_PRIMARY_TARGET`。
+- 主目标上传为同步阻塞模式，成功后会异步复制一份到 `BACKUP_ASYNC_TARGET`。
+- 主目标和异步目标都会上传归档文件及对应的 `.sha256` 校验文件。
+- 备份开始前会检查上一次异步副本状态；如果上次异步任务失败，会打印告警。
+- 远端路径支持 `{hostname}` 占位符，运行时展开为当前机器 hostname。
+- 跨机恢复时，可通过 `RESTORE_SOURCE_HOSTNAME` 或 `restore --source-hostname <源主机名>`，让恢复阶段按源主机名展开 `{hostname}`。
+- 恢复默认先查本地备份，存在时默认选最新。
+- 本地已有备份时，可在列表中输入 `0` 主动切换到云端搜索。
+- 云端恢复默认先查 `BACKUP_PRIMARY_TARGET`；如果主目标访问失败或没有备份，再回退到其他候选目标。
+- 云端恢复会在真正查询前先检查 `rclone` remote 是否存在；`OCI` 目标还会预检查本机 `/root/.oci/config`。
+- 远端恢复会先下载归档与 `.sha256`，再执行校验。
+- 恢复前必须输入精确的 `yes` 才会开始执行。
+- 恢复前会创建轻量快照；恢复失败后不会立即回滚，而是在整轮恢复和健康检查结束后再判断。
+- 默认不自动回滚；可通过 `restore --rollback-on-failure` 在无人值守场景下视同强确认，失败后自动执行轻量回滚。
+
+### 已知问题
+
+- 远端恢复前虽然已加入 `rclone remote` 和 `OCI` 凭据预检查，但工具仍不会自动生成 `rclone.conf` 或 `/root/.oci/config`。首次空机远端恢复前，目标机仍需具备这些前置凭据。
+- 轻量回滚仅覆盖配置级内容，例如反代、systemd、cron、防火墙规则和 compose 配置；不承诺回滚卷数据、数据库导入结果或业务副作用。
+- Docker / Compose 自动安装目前主要覆盖 Debian / Ubuntu 路径，其他发行版仍属于尽力而为。
+- 当前使用的 `git-deploy` 推送脚本内部是 `git add .`，会把未跟踪文件一起提交，使用时需要额外注意工作区干净度。
 
 ### Oracle Object Storage 建议
 

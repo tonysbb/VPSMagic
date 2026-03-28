@@ -46,9 +46,12 @@ SHOW_VERSION_ONLY=0
 RESTORE_LOCAL_FILE="${RESTORE_LOCAL_FILE:-}"
 RESTORE_AUTO_CONFIRM="${RESTORE_AUTO_CONFIRM:-0}"
 RESTORE_ROLLBACK_ON_FAILURE="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
+RESTORE_SOURCE_HOSTNAME="${RESTORE_SOURCE_HOSTNAME:-}"
 CLI_BACKUP_DESTINATION=""
 CLI_BACKUP_REMOTE_OVERRIDE=""
 CLI_UI_LANG=""
+CLI_RESTORE_ROLLBACK_ON_FAILURE=""
+CLI_RESTORE_SOURCE_HOSTNAME=""
 
 # ---------- 加载库文件 ----------
 # shellcheck source=lib/i18n.sh
@@ -131,6 +134,8 @@ show_help() {
     --auto-confirm    Skip interactive confirmation prompts during restore
     --rollback-on-failure
                       Auto-run lightweight rollback if restore fails
+    --source-hostname <name>
+                      Use this source hostname when expanding {hostname} during restore
     --verbose         Show verbose debug logs
     --version, -v     Show version
 
@@ -164,6 +169,9 @@ show_help() {
 
     # Unattended restore with lightweight auto-rollback on failure
     vpsmagic restore --auto-confirm --rollback-on-failure
+
+    # Cross-host restore: resolve {hostname} as the source host
+    vpsmagic restore --source-hostname source-vps
 
     # Online migration to a new VPS
     vpsmagic migrate root@new-vps
@@ -206,6 +214,8 @@ EOF
     --auto-confirm    restore 时跳过交互确认
     --rollback-on-failure
                       restore 失败后自动执行轻量回滚
+    --source-hostname <name>
+                      restore 时将 {hostname} 按源主机名展开
     --verbose         显示详细调试信息
     --version, -v     显示版本号
 
@@ -239,6 +249,9 @@ EOF
 
     # 无人值守恢复，失败后自动轻量回滚
     vpsmagic restore --auto-confirm --rollback-on-failure
+
+    # 跨机恢复：将 {hostname} 按源主机名展开
+    vpsmagic restore --source-hostname source-vps
 
     # 在线迁移到新 VPS
     vpsmagic migrate root@new-vps
@@ -472,6 +485,7 @@ RCLONE_REMOTE=\"\"
 # RCLONE_CONF=\"\"
 # RCLONE_BW_LIMIT=\"\"
 RESTORE_ROLLBACK_ON_FAILURE=false
+RESTORE_SOURCE_HOSTNAME=""
 
 # ---------- Backup storage ----------
 BACKUP_ROOT=\"${backup_root}\"
@@ -582,7 +596,10 @@ parse_args() {
             --auto-confirm)
               RESTORE_AUTO_CONFIRM=1; shift ;;
             --rollback-on-failure)
-              RESTORE_ROLLBACK_ON_FAILURE=true; shift ;;
+              CLI_RESTORE_ROLLBACK_ON_FAILURE=true; shift ;;
+            --source-hostname)
+              [[ $# -ge 2 ]] || { log_error "--source-hostname 需要一个参数"; exit 1; }
+              CLI_RESTORE_SOURCE_HOSTNAME="$2"; shift 2 ;;
             *)
               SUBCMD_ARGS+=("$1"); shift ;;
           esac
@@ -606,6 +623,9 @@ parse_args() {
         SHOW_VERSION_ONLY=1; shift ;;
       --help|-h)
         SHOW_HELP_ONLY=1; shift ;;
+      --source-hostname)
+        [[ $# -ge 2 ]] || { log_error "--source-hostname 需要一个参数"; exit 1; }
+        CLI_RESTORE_SOURCE_HOSTNAME="$2"; shift 2 ;;
       *)
         log_error "未知参数: $1"
         show_help
@@ -662,6 +682,12 @@ main() {
   if [[ -n "${CLI_UI_LANG}" ]]; then
     UI_LANG="${CLI_UI_LANG}"
     set_ui_language "${UI_LANG}"
+  fi
+  if [[ -n "${CLI_RESTORE_ROLLBACK_ON_FAILURE}" ]]; then
+    RESTORE_ROLLBACK_ON_FAILURE="${CLI_RESTORE_ROLLBACK_ON_FAILURE}"
+  fi
+  if [[ -n "${CLI_RESTORE_SOURCE_HOSTNAME}" ]]; then
+    RESTORE_SOURCE_HOSTNAME="${CLI_RESTORE_SOURCE_HOSTNAME}"
   fi
 
   # 高权限命令保护，避免非 root 运行产生不完整结果
