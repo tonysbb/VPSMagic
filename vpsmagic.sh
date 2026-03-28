@@ -363,6 +363,16 @@ run_init() {
   log_banner "$(lang_pick "VPS Magic Backup — 初始化配置" "VPS Magic Backup — Initialize Config")"
 
   local target_config="${VPSMAGIC_HOME}/config.env"
+  local init_mode="local"
+  local backup_destination="local"
+  local default_config_dir="${VPSMAGIC_HOME}"
+
+  if [[ ! -d "${default_config_dir}" ]]; then
+    default_config_dir="$(dirname "${default_config_dir}")"
+  fi
+  if [[ ! -w "${default_config_dir}" ]]; then
+    target_config="${PWD}/config.env"
+  fi
 
   echo "$(lang_pick "本向导将帮助你创建备份配置文件。" "This wizard will help you create a backup config file.")"
   echo
@@ -378,58 +388,94 @@ run_init() {
   safe_mkdir "$(dirname "${target_config}")"
 
   echo
-  echo -e "${_CLR_BOLD}$(lang_pick "第1步: 远端存储配置" "Step 1: Remote storage")${_CLR_NC}"
-  echo "  $(lang_pick "VPS Magic 使用 rclone 将备份推送到远端存储。" "VPS Magic uses rclone to push backups to remote storage.")"
-  echo "  $(lang_pick "支持: WebDAV (OpenList/AList)、Google Drive、OneDrive、S3 等" "Supported: WebDAV (OpenList/AList), Google Drive, OneDrive, S3, and more")"
+  echo -e "${_CLR_BOLD}$(lang_pick "第1步: 选择使用模式" "Step 1: Choose a usage mode")${_CLR_NC}"
+  echo "  1) $(lang_pick "仅本地备份（推荐新手）" "Local backups only (recommended for first-time users)")"
+  echo "  2) $(lang_pick "本地 + 云端备份" "Local + remote backups")"
+  echo "  3) $(lang_pick "仅生成配置，稍后再完善" "Generate a config only and refine it later")"
   echo
 
+  local mode_selection=""
+  read -r -p "$(lang_pick "请选择模式编号" "Select a mode") [$(prompt_default_label): 1]: " mode_selection
+  mode_selection="${mode_selection:-1}"
+  case "${mode_selection}" in
+    2)
+      init_mode="remote"
+      backup_destination="remote"
+      ;;
+    3)
+      init_mode="config_only"
+      backup_destination="local"
+      ;;
+    *)
+      init_mode="local"
+      backup_destination="local"
+      ;;
+  esac
+
   local backup_targets=""
-  local detected_host
-  detected_host="$(hostname 2>/dev/null || echo 'vps')"
-  if command -v rclone >/dev/null 2>&1; then
-    log_info "$(lang_pick "检测到 rclone，列出已配置的 remote:" "rclone detected. Listing configured remotes:")"
-    rclone listremotes 2>/dev/null | while read -r r; do
-      echo "    ${r}"
-    done
-    echo
-  else
-    log_warn "$(lang_pick "rclone 未安装。安装方法: curl https://rclone.org/install.sh | sudo bash" "rclone is not installed. Install with: curl https://rclone.org/install.sh | sudo bash")"
-    echo "  $(lang_pick "安装后，运行 'rclone config' 配置远端存储。" "After installation, run 'rclone config' to configure remote storage.")"
-    echo
-  fi
-
-  echo "  $(lang_pick "留空 = 使用默认优先级:" "Leave empty to use the default priority order:")"
-  echo "    1. gdrive:VPSMagicBackup/${detected_host}"
-  echo "    2. onedrive:VPSMagicBackup/${detected_host}"
-  echo "    3. openlist_webdav:backup/${detected_host}"
-  echo "  $(lang_pick "也支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
-  echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
-  read_with_default backup_targets "$(lang_pick "请输入备份目标列表 (可留空使用默认策略)" "Enter backup targets (optional, leave empty for defaults)")" ""
-
-  local -a configured_targets=()
-  if [[ -n "${backup_targets}" ]]; then
-    parse_list "${backup_targets}" configured_targets
-  fi
   local backup_primary_target=""
   local backup_async_target=""
   local backup_interactive_targets="true"
-  if (( ${#configured_targets[@]} > 0 )); then
-    read_with_default backup_primary_target "$(lang_pick "默认主目标 (备份/恢复交互默认项)" "Default primary target (default selection for backup/restore)")" "${configured_targets[0]}"
-    if (( ${#configured_targets[@]} > 1 )); then
-      read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" "${configured_targets[1]}"
+  local detected_host
+  detected_host="$(hostname 2>/dev/null || echo 'vps')"
+  local -a configured_targets=()
+
+  if [[ "${init_mode}" == "remote" ]]; then
+    echo
+    echo -e "${_CLR_BOLD}$(lang_pick "第2步: 远端存储配置" "Step 2: Remote storage")${_CLR_NC}"
+    echo "  $(lang_pick "VPS Magic 使用 rclone 将备份推送到远端存储。" "VPS Magic uses rclone to push backups to remote storage.")"
+    echo "  $(lang_pick "支持: WebDAV (OpenList/AList)、Google Drive、OneDrive、S3 等" "Supported: WebDAV (OpenList/AList), Google Drive, OneDrive, S3, and more")"
+    echo
+
+    if command -v rclone >/dev/null 2>&1; then
+      log_info "$(lang_pick "检测到 rclone，列出已配置的 remote:" "rclone detected. Listing configured remotes:")"
+      rclone listremotes 2>/dev/null | while read -r r; do
+        echo "    ${r}"
+      done
+      echo
     else
+      log_warn "$(lang_pick "rclone 未安装。你仍可先生成远端配置，但首次远端备份前需要先安装并配置 rclone。" "rclone is not installed. You can still generate a remote config now, but you must install and configure rclone before the first remote backup.")"
+      echo "  $(lang_pick "安装方法: curl https://rclone.org/install.sh | sudo bash" "Install with: curl https://rclone.org/install.sh | sudo bash")"
+      echo "  $(lang_pick "安装后运行: rclone config" "Then run: rclone config")"
+      echo
+    fi
+
+    echo "  $(lang_pick "留空 = 使用默认优先级:" "Leave empty to use the default priority order:")"
+    echo "    1. gdrive:VPSMagicBackup/${detected_host}"
+    echo "    2. onedrive:VPSMagicBackup/${detected_host}"
+    echo "    3. openlist_webdav:backup/${detected_host}"
+    echo "  $(lang_pick "也支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
+    echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
+    read_with_default backup_targets "$(lang_pick "请输入备份目标列表 (可留空使用默认策略)" "Enter backup targets (optional, leave empty for defaults)")" ""
+
+    if [[ -n "${backup_targets}" ]]; then
+      parse_list "${backup_targets}" configured_targets
+    fi
+    if (( ${#configured_targets[@]} > 0 )); then
+      read_with_default backup_primary_target "$(lang_pick "默认主目标 (备份/恢复交互默认项)" "Default primary target (default selection for backup/restore)")" "${configured_targets[0]}"
+      if (( ${#configured_targets[@]} > 1 )); then
+        read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" "${configured_targets[1]}"
+      else
+        read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" ""
+      fi
+    else
+      read_with_default backup_primary_target "$(lang_pick "默认主目标 (可留空)" "Default primary target (optional)")" ""
       read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" ""
     fi
+    if ! confirm "$(lang_pick "备份 / 恢复时是否先交互列出远端路径？" "List remote targets interactively before backup / restore?")" "y"; then
+      backup_interactive_targets="false"
+    fi
   else
-    read_with_default backup_primary_target "$(lang_pick "默认主目标 (可留空)" "Default primary target (optional)")" ""
-    read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" ""
-  fi
-  if ! confirm "$(lang_pick "备份 / 恢复时是否先交互列出远端路径？" "List remote targets interactively before backup / restore?")" "y"; then
-    backup_interactive_targets="false"
+    echo
+    if [[ "${init_mode}" == "local" ]]; then
+      log_info "$(lang_pick "已选择仅本地备份模式。当前不会要求 rclone 或远端存储。" "Local-only mode selected. rclone and remote storage are not required right now.")"
+    else
+      log_info "$(lang_pick "已选择仅生成配置。默认会生成一份安全的本地模式配置，你可以稍后再补远端。" "Config-only mode selected. A safe local-mode config will be generated and you can add remote settings later.")"
+    fi
   fi
 
   echo
-  echo -e "${_CLR_BOLD}$(lang_pick "第2步: 备份存储" "Step 2: Backup storage")${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "第3步: 备份存储" "Step 3: Backup storage")${_CLR_NC}"
   local backup_root="/opt/vpsmagic/backups"
   read_with_default backup_root "$(lang_pick "本地备份临时目录" "Local backup workspace")" "${backup_root}"
 
@@ -460,7 +506,7 @@ run_init() {
   read_with_default keep_remote "$(lang_pick "远端保留备份份数" "Remote retention copies")" "${keep_remote}"
 
   echo
-  echo -e "${_CLR_BOLD}$(lang_pick "第3步: 选择备份模块" "Step 3: Select backup modules")${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "第4步: 选择备份模块" "Step 4: Select backup modules")${_CLR_NC}"
   echo "  $(lang_pick "按 Enter 保留默认值 (全部启用)，输入 n 禁用。" "Press Enter to keep the default (enabled), or type n to disable.")"
   echo
 
@@ -477,37 +523,40 @@ run_init() {
     "ENABLE_CUSTOM_PATHS:$(module_display_name "CUSTOM_PATHS")"
   )
 
-  local config_content="# ============================================
+  local config_content=""
+  config_content="$(cat <<EOF
+# ============================================
 # VPS Magic Backup config
 # Generated at: $(date '+%Y-%m-%d %H:%M:%S')
 # ============================================
 
-UI_LANG=\"${UI_LANG:-zh}\"
+UI_LANG="${UI_LANG:-zh}"
 
 # ---------- Remote storage ----------
-BACKUP_TARGETS=\"${backup_targets}\"
-BACKUP_PRIMARY_TARGET=\"${backup_primary_target}\"
-BACKUP_ASYNC_TARGET=\"${backup_async_target}\"
-BACKUP_INTERACTIVE_TARGETS=\"${backup_interactive_targets}\"
-RCLONE_REMOTE=\"\"
-# RCLONE_CONF=\"\"
-# RCLONE_BW_LIMIT=\"\"
+BACKUP_TARGETS="${backup_targets}"
+BACKUP_PRIMARY_TARGET="${backup_primary_target}"
+BACKUP_ASYNC_TARGET="${backup_async_target}"
+BACKUP_INTERACTIVE_TARGETS="${backup_interactive_targets}"
+RCLONE_REMOTE=""
+# RCLONE_CONF=""
+# RCLONE_BW_LIMIT=""
 RESTORE_ROLLBACK_ON_FAILURE=false
 RESTORE_SOURCE_HOSTNAME=""
 
 # ---------- Backup storage ----------
-BACKUP_ROOT=\"${backup_root}\"
+BACKUP_ROOT="${backup_root}"
 BACKUP_KEEP_LOCAL=${keep_local}
 BACKUP_KEEP_REMOTE=${keep_remote}
-BACKUP_PREFIX=\"vpsmagic\"
-BACKUP_DESTINATION=\"remote\"
-# BACKUP_REMOTE_OVERRIDE=\"\"
+BACKUP_PREFIX="vpsmagic"
+BACKUP_DESTINATION="${backup_destination}"
+# BACKUP_REMOTE_OVERRIDE=""
 
 # ---------- Encryption (optional) ----------
-# BACKUP_ENCRYPTION_KEY=\"\"
+# BACKUP_ENCRYPTION_KEY=""
 
-# ---------- Backup modules ----------
-"
+EOF
+)"
+  config_content+=$'\n\n# ---------- Backup modules ----------\n'
 
   local entry key label enabled
   for entry in "${module_flags[@]}"; do
@@ -517,44 +566,44 @@ BACKUP_DESTINATION=\"remote\"
     if ! confirm "$(lang_pick "  启用" "  Enable") ${label}?" "y"; then
       enabled="false"
     fi
-    config_content+="${key}=${enabled}
-"
+    config_content+="${key}=${enabled}"$'\n'
   done
 
-  config_content+="
+  config_content+="$(cat <<'EOF'
 # ---------- Module options ----------
 COMPOSE_PROJECTS=auto
 SYSTEMD_SERVICES=auto
-BACKUP_USERS=\"root\"
-# EXTRA_PATHS=\"/opt/mydata, /srv/configs\"
+BACKUP_USERS="root"
+# EXTRA_PATHS="/opt/mydata, /srv/configs"
 
 # ---------- Databases ----------
-# DB_MYSQL_CONTAINERS=\"\"
-# DB_MYSQL_HOST_USER=\"\"
-# DB_MYSQL_HOST_PASS=\"\"
-# DB_POSTGRES_CONTAINERS=\"\"
-# DB_SQLITE_PATHS=\"\"
+# DB_MYSQL_CONTAINERS=""
+# DB_MYSQL_HOST_USER=""
+# DB_MYSQL_HOST_PASS=""
+# DB_POSTGRES_CONTAINERS=""
+# DB_SQLITE_PATHS=""
 
 # ---------- Notifications ----------
 NOTIFY_ENABLED=false
-# TG_BOT_TOKEN=\"\"
-# TG_CHAT_ID=\"\"
+# TG_BOT_TOKEN=""
+# TG_CHAT_ID=""
 
 # ---------- Logging ----------
-LOG_FILE=\"/var/log/vpsmagic.log\"
+LOG_FILE="/var/log/vpsmagic.log"
 
 # ---------- Schedule ----------
-SCHEDULE_CRON=\"0 3 * * *\"
-"
+SCHEDULE_CRON="0 3 * * *"
+EOF
+)"
 
   echo
-  echo -e "${_CLR_BOLD}$(lang_pick "第4步: 通知配置 (可选)" "Step 4: Notifications (optional)")${_CLR_NC}"
+  echo -e "${_CLR_BOLD}$(lang_pick "第5步: 通知配置 (可选)" "Step 5: Notifications (optional)")${_CLR_NC}"
   if confirm "$(lang_pick "是否启用 Telegram 通知？" "Enable Telegram notifications?")" "n"; then
     local tg_token=""
     local tg_chat=""
     read_with_default tg_token "Telegram Bot Token" ""
     read_with_default tg_chat "Telegram Chat ID" ""
-    config_content="$(echo "${config_content}" | sed "s/NOTIFY_ENABLED=false/NOTIFY_ENABLED=true/")"
+    config_content="$(echo "${config_content}" | sed 's/NOTIFY_ENABLED=false/NOTIFY_ENABLED=true/')"
     config_content="$(echo "${config_content}" | sed "s|# TG_BOT_TOKEN=\"\"|TG_BOT_TOKEN=\"${tg_token}\"|")"
     config_content="$(echo "${config_content}" | sed "s|# TG_CHAT_ID=\"\"|TG_CHAT_ID=\"${tg_chat}\"|")"
   fi
@@ -567,9 +616,18 @@ SCHEDULE_CRON=\"0 3 * * *\"
   echo
   echo -e "${_CLR_BOLD}$(lang_pick "下一步" "Next steps"):${_CLR_NC}"
   echo "  1. $(lang_pick "检查并按需调整配置" "Review and adjust config"): vim ${target_config}"
-  echo "  2. $(lang_pick "测试备份 (模拟)" "Test backup (dry-run)"):    vpsmagic backup --dry-run --config ${target_config}"
-  echo "  3. $(lang_pick "执行真实备份" "Run a real backup"):        vpsmagic backup --config ${target_config}"
-  echo "  4. $(lang_pick "安装定时备份" "Install schedule"):        vpsmagic schedule install"
+  if [[ "${init_mode}" == "config_only" ]]; then
+    echo "  2. $(lang_pick "先决定要走本地还是远端备份" "Decide whether you want local-only or remote backups first")"
+    echo "  3. $(lang_pick "准备好后再执行备份" "Run backup when ready"): vpsmagic backup --config ${target_config}"
+  else
+    echo "  2. $(lang_pick "测试备份 (模拟)" "Test backup (dry-run)"):    vpsmagic backup --dry-run --config ${target_config}"
+    echo "  3. $(lang_pick "执行真实备份" "Run a real backup"):        vpsmagic backup --config ${target_config}"
+  fi
+  if [[ "${init_mode}" != "remote" ]]; then
+    echo "  4. $(lang_pick "以后如需异地备份，再配置 rclone 和远端目标" "Configure rclone and remote targets later if you want off-site backups")"
+  else
+    echo "  4. $(lang_pick "安装定时备份" "Install schedule"):        vpsmagic schedule install"
+  fi
   echo
 }
 
