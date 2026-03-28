@@ -299,7 +299,11 @@ show_status() {
   done
   echo
 
-  print_config
+  local status_mode="backup"
+  if [[ -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
+    status_mode="restore"
+  fi
+  print_config "${status_mode}"
 
   # 备份状态
   local archive_dir="${BACKUP_ROOT}/archives"
@@ -328,7 +332,11 @@ show_status() {
   # 远端状态
   if command -v rclone >/dev/null 2>&1; then
     local -a backup_targets=()
-    get_backup_targets backup_targets
+    if [[ "${status_mode}" == "restore" ]]; then
+      get_restore_targets backup_targets
+    else
+      get_backup_targets backup_targets
+    fi
     if [[ ${#backup_targets[@]} -gt 0 ]]; then
       echo -e "${_CLR_BOLD}$(lang_pick "远端备份" "Remote backups"):${_CLR_NC}"
       local remote_target=""

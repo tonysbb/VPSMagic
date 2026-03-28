@@ -478,8 +478,17 @@ get_backup_async_target() {
 
 # ---------- 打印当前配置 ----------
 print_config() {
+  local mode="${1:-}"
   local -a backup_targets=()
-  if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+  if [[ -z "${mode}" ]]; then
+    if [[ "${SUBCOMMAND:-}" == "restore" || -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
+      mode="restore"
+    else
+      mode="backup"
+    fi
+  fi
+
+  if [[ "${mode}" == "restore" ]]; then
     get_restore_targets backup_targets
   else
     get_backup_targets backup_targets
@@ -497,14 +506,14 @@ print_config() {
     ((idx+=1))
   done
   if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
-    if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+    if [[ "${mode}" == "restore" ]]; then
       echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_restore_primary_target)"
     else
       echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_backup_primary_target)"
     fi
   fi
   if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
-    if [[ "${SUBCOMMAND:-}" == "restore" ]]; then
+    if [[ "${mode}" == "restore" ]]; then
       echo "  $(lang_pick "异步副本目标" "Async replica target"): $(expand_backup_target_template_with_host "${BACKUP_ASYNC_TARGET}" "$(get_restore_source_hostname)")"
     else
       echo "  $(lang_pick "异步副本目标" "Async replica target"): $(get_backup_async_target)"
