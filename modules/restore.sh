@@ -719,6 +719,47 @@ _list_remote_backup_archives() {
   return 0
 }
 
+_calculate_sha256() {
+  local file="$1"
+  [[ -f "${file}" ]] || return 1
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${file}" 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "${file}" 2>/dev/null | awk '{print $1}'
+    return 0
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "${file}" 2>/dev/null | awk '{print $NF}'
+    return 0
+  fi
+
+  return 1
+}
+
+_read_remote_archive_checksum() {
+  local remote_archive="$1"
+  local out_var="$2"
+  shift 2
+  local output=""
+  local checksum=""
+
+  output="$(rclone cat "${remote_archive}.sha256" "$@" 2>/dev/null | head -1)" || true
+  checksum="$(awk '{print $1}' <<< "${output}")"
+  if [[ "${checksum}" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+    checksum="${checksum,,}"
+    printf -v "${out_var}" '%s' "${checksum}"
+    return 0
+  fi
+
+  printf -v "${out_var}" '%s' ""
+  return 1
+}
+
 _extract_rclone_remote_name() {
   local target="${1:-}"
   printf '%s\n' "${target%%:*}"
@@ -763,14 +804,14 @@ _preflight_restore_remote_target() {
 
   if ! _rclone_remote_exists "${remote_name}" "${rclone_opts[@]}"; then
     local conf_path="${RCLONE_CONF:-${HOME}/.config/rclone/rclone.conf}"
-    printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})"
+    printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})。$(lang_pick "请先复制源机的 rclone.conf，或在目标机运行 rclone config，无法满足时改用 restore --local。" "Copy the source host rclone.conf first, or run rclone config on the target host. If that is not possible, use restore --local instead.")"
     return 1
   fi
 
   if _remote_uses_oci_credentials "${remote_name}" "${rclone_opts[@]}"; then
     local oci_conf="${OCI_CLI_CONFIG_FILE:-${HOME}/.oci/config}"
     if [[ ! -f "${oci_conf}" ]]; then
-      printf -v "${err_var}" '%s' "$(lang_pick "OCI 凭据缺失" "OCI credentials are missing"): ${oci_conf}"
+      printf -v "${err_var}" '%s' "$(lang_pick "OCI 凭据缺失" "OCI credentials are missing"): ${oci_conf}。$(lang_pick "请先复制源机的 /root/.oci/config 和对应密钥，或改用其他远端/restore --local。" "Copy /root/.oci/config and its key material from the source host first, or use another remote / restore --local.")"
       return 1
     fi
   fi
@@ -1296,17 +1337,32 @@ run_restore() {
 
   local local_archive="${restore_dir}/${selected}"
   local sum_file="${restore_dir}/${selected}.sha256"
+  local skip_download=0
 
   if [[ -f "${local_archive}" ]]; then
-    log_info "$(lang_pick "本地已存在该备份，跳过下载。" "The backup already exists locally. Skipping download.")"
-    if ! confirm "$(lang_pick "是否重新下载覆盖？" "Re-download and overwrite it?")" "n"; then
-      log_info "$(lang_pick "使用现有文件。" "Using the existing local file.")"
-    else
-      rm -f "${local_archive}" "${sum_file}"
+    local remote_checksum=""
+    local local_checksum=""
+    if _read_remote_archive_checksum "${selected_remote}/${selected}" remote_checksum "${rclone_opts[@]}"; then
+      local_checksum="$(_calculate_sha256 "${local_archive}" 2>/dev/null || true)"
+      if [[ -n "${local_checksum}" && "${local_checksum,,}" == "${remote_checksum}" ]]; then
+        skip_download=1
+        [[ -f "${sum_file}" ]] || printf '%s  %s\n' "${remote_checksum}" "$(basename "${local_archive}")" > "${sum_file}"
+        log_info "$(lang_pick "本地已存在同名备份且与远端校验一致，直接复用。" "A local backup with the same name already exists and matches the remote checksum. Reusing it directly.")"
+      fi
+    fi
+
+    if (( skip_download == 0 )); then
+      log_info "$(lang_pick "本地已存在该备份。" "The backup already exists locally.")"
+      if ! confirm "$(lang_pick "是否重新下载覆盖？" "Re-download and overwrite it?")" "n"; then
+        log_info "$(lang_pick "使用现有文件。" "Using the existing local file.")"
+        skip_download=1
+      else
+        rm -f "${local_archive}" "${sum_file}"
+      fi
     fi
   fi
 
-  if [[ ! -f "${local_archive}" ]]; then
+  if (( skip_download == 0 )) && [[ ! -f "${local_archive}" ]]; then
     if log_dry_run "$(lang_pick "下载" "Download") ${selected} <- ${selected_remote}"; then :; else
       rclone copy "${selected_remote}/${selected}" "${restore_dir}/" "${rclone_opts[@]}" --progress 2>&1 || {
         log_error "$(lang_pick "下载失败!" "Download failed!")"
