@@ -356,6 +356,11 @@ vpsmagic restore
 vpsmagic restore --local /path/to/backup.tar.gz
 ```
 
+远端恢复开始前，工具会先做一轮**远端恢复前置检查**，至少包括：
+- `rclone remote` 是否存在
+- `OCI` 目标所需的 `/root/.oci/config` 是否存在
+- 若全部远端都不满足条件，会在真正查询备份前直接结束，并提示改用 `restore --local`
+
 恢复流程会：
 1. 列出远端所有可用备份
 2. 用户选择要恢复的版本
@@ -429,6 +434,7 @@ vpsmagic migrate root@new-vps --skip-restore
 - 跨机恢复时，可通过 `RESTORE_SOURCE_HOSTNAME` 或 `restore --source-hostname <源主机名>`，让恢复阶段按源主机名展开 `{hostname}`。
 - 恢复默认先查本地备份，存在时默认选最新。
 - 本地已有备份时，可在列表中输入 `0` 主动切换到云端搜索。
+- 切到云端恢复后，会先统一打印一轮“远端恢复前置检查”结果。
 - 云端恢复默认先查 `BACKUP_PRIMARY_TARGET`；如果主目标访问失败或没有备份，再回退到其他候选目标。
 - 云端恢复会在真正查询前先检查 `rclone` remote 是否存在；`OCI` 目标还会预检查本机 `/root/.oci/config`。
 - 远端恢复会先下载归档与 `.sha256`，再执行校验。

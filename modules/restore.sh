@@ -14,6 +14,9 @@ _RESTORE_HEALTH_EXPECT_PROXY=0
 _RESTORE_HEALTH_CHECK_USER_HOME=0
 _RESTORE_APT_UPDATED=0
 _RESTORE_SSH_PORTS=()
+_RESTORE_PREFLIGHT_TARGETS=()
+_RESTORE_PREFLIGHT_READY=()
+_RESTORE_PREFLIGHT_ERRORS=()
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -24,6 +27,9 @@ _reset_restore_health_checks() {
   _RESTORE_HEALTH_CHECK_USER_HOME=0
   _RESTORE_APT_UPDATED=0
   _RESTORE_SSH_PORTS=()
+  _RESTORE_PREFLIGHT_TARGETS=()
+  _RESTORE_PREFLIGHT_READY=()
+  _RESTORE_PREFLIGHT_ERRORS=()
 }
 
 _append_unique_line() {
@@ -826,6 +832,73 @@ _preflight_restore_remote_target() {
   return 0
 }
 
+_store_restore_remote_preflight_result() {
+  local target="$1"
+  local ready="$2"
+  local error_text="$3"
+  _RESTORE_PREFLIGHT_TARGETS+=("${target}")
+  _RESTORE_PREFLIGHT_READY+=("${ready}")
+  _RESTORE_PREFLIGHT_ERRORS+=("${error_text}")
+}
+
+_get_restore_remote_preflight_result() {
+  local target="$1"
+  local ready_var="$2"
+  local error_var="$3"
+  local idx=0
+
+  while (( idx < ${#_RESTORE_PREFLIGHT_TARGETS[@]} )); do
+    if [[ "${_RESTORE_PREFLIGHT_TARGETS[$idx]}" == "${target}" ]]; then
+      printf -v "${ready_var}" '%s' "${_RESTORE_PREFLIGHT_READY[$idx]}"
+      printf -v "${error_var}" '%s' "${_RESTORE_PREFLIGHT_ERRORS[$idx]}"
+      return 0
+    fi
+    ((idx+=1))
+  done
+
+  return 1
+}
+
+_run_restore_remote_preflight() {
+  local targets_var="$1"
+  local -n _targets="${targets_var}"
+  local target=""
+  local error_text=""
+  local any_ready=0
+  local any_problem=0
+
+  for target in "${_targets[@]}"; do
+    if _preflight_restore_remote_target "${target}" error_text; then
+      _store_restore_remote_preflight_result "${target}" "1" ""
+      any_ready=1
+    else
+      _store_restore_remote_preflight_result "${target}" "0" "${error_text}"
+      any_problem=1
+    fi
+  done
+
+  if (( any_problem == 1 )); then
+    echo
+    echo -e "${_CLR_BOLD}$(lang_pick "远端恢复前置检查" "Remote restore prerequisites"):${_CLR_NC}"
+    log_separator "─" 56
+    local idx=0
+    while (( idx < ${#_RESTORE_PREFLIGHT_TARGETS[@]} )); do
+      if [[ "${_RESTORE_PREFLIGHT_READY[$idx]}" == "1" ]]; then
+        echo "  ✅ ${_RESTORE_PREFLIGHT_TARGETS[$idx]}"
+      else
+        echo "  ⚠️ ${_RESTORE_PREFLIGHT_TARGETS[$idx]}"
+        echo "     ${_RESTORE_PREFLIGHT_ERRORS[$idx]}"
+      fi
+      ((idx+=1))
+    done
+    log_separator "─" 56
+    echo "  $(lang_pick "无法满足前置条件时，可改用" "If prerequisites cannot be satisfied, use"): vpsmagic restore --local <file>"
+    echo
+  fi
+
+  (( any_ready == 1 ))
+}
+
 _order_restore_modules() {
   local input_var="$1"
   local output_var="$2"
@@ -1219,6 +1292,12 @@ run_restore() {
   local selected_restore_remote=""
   local preferred_restore_remote=""
   preferred_restore_remote="$(get_restore_primary_target)"
+  if ! _run_restore_remote_preflight restore_targets; then
+    log_error "$(lang_pick "所有远端恢复目标都未通过前置检查。" "No remote restore target passed the prerequisite checks.")"
+    log_info "$(lang_pick "如果要从本地文件恢复，请使用" "To restore from a local file, use"): vpsmagic restore --local <file>"
+    return 1
+  fi
+
   local interactive_targets="${BACKUP_INTERACTIVE_TARGETS:-true}"
   if [[ "${interactive_targets}" == "true" && -t 0 && ${#restore_targets[@]} -gt 0 ]]; then
     echo
@@ -1265,9 +1344,8 @@ run_restore() {
   for remote in "${remote_search_order[@]}"; do
     local -a remote_files=()
     local remote_error=""
-    if ! _preflight_restore_remote_target "${remote}" remote_error; then
-      log_warn_soft "$(lang_pick "远端预检查失败" "Remote preflight failed"): ${remote}"
-      [[ -n "${remote_error}" ]] && log_warn_soft "  ${remote_error}"
+    local remote_ready=""
+    if _get_restore_remote_preflight_result "${remote}" remote_ready remote_error && [[ "${remote_ready}" != "1" ]]; then
       if [[ "${remote}" == "${selected_restore_remote}" ]]; then
         primary_remote_problem=1
       fi
