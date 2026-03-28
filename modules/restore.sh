@@ -1289,6 +1289,7 @@ run_restore() {
   local rclone_opts=()
   _build_restore_rclone_opts rclone_opts
 
+  local -a ready_restore_targets=()
   local selected_restore_remote=""
   local preferred_restore_remote=""
   preferred_restore_remote="$(get_restore_primary_target)"
@@ -1298,14 +1299,23 @@ run_restore() {
     return 1
   fi
 
+  ready_restore_targets=()
+  for ready_target in "${restore_targets[@]}"; do
+    local ready_flag=""
+    local ready_error=""
+    if _get_restore_remote_preflight_result "${ready_target}" ready_flag ready_error && [[ "${ready_flag}" == "1" ]]; then
+      ready_restore_targets+=("${ready_target}")
+    fi
+  done
+
   local interactive_targets="${BACKUP_INTERACTIVE_TARGETS:-true}"
-  if [[ "${interactive_targets}" == "true" && -t 0 && ${#restore_targets[@]} -gt 0 ]]; then
+  if [[ "${interactive_targets}" == "true" && -t 0 && ${#ready_restore_targets[@]} -gt 0 ]]; then
     echo
     echo -e "${_CLR_BOLD}$(lang_pick "可用远端恢复路径" "Available remote restore targets"):${_CLR_NC}"
     log_separator "─" 56
     local idx=1
     local default_index=1
-    for remote in "${restore_targets[@]}"; do
+    for remote in "${ready_restore_targets[@]}"; do
       printf "  %2d) %s\n" "${idx}" "${remote}"
       if [[ -n "${preferred_restore_remote}" && "${remote}" == "${preferred_restore_remote}" ]]; then
         default_index="${idx}"
@@ -1318,15 +1328,19 @@ run_restore() {
     local remote_selection=""
     read -r -p "$(lang_pick "请选择恢复远端编号" "Select the restore remote") [$(prompt_default_label): ${default_index}]: " remote_selection
     remote_selection="${remote_selection:-${default_index}}"
-    if ! [[ "${remote_selection}" =~ ^[0-9]+$ ]] || (( remote_selection < 1 || remote_selection > ${#restore_targets[@]} )); then
+    if ! [[ "${remote_selection}" =~ ^[0-9]+$ ]] || (( remote_selection < 1 || remote_selection > ${#ready_restore_targets[@]} )); then
       log_error "$(lang_pick "无效的选择" "Invalid selection"): ${remote_selection}"
       return 1
     fi
-    selected_restore_remote="${restore_targets[$((remote_selection-1))]}"
+    selected_restore_remote="${ready_restore_targets[$((remote_selection-1))]}"
   elif [[ -n "${preferred_restore_remote}" ]]; then
     selected_restore_remote="${preferred_restore_remote}"
   else
-    selected_restore_remote="${restore_targets[0]}"
+    selected_restore_remote="${ready_restore_targets[0]}"
+  fi
+
+  if ! _append_unique_line "${selected_restore_remote}" "${ready_restore_targets[@]}"; then
+    selected_restore_remote="${ready_restore_targets[0]}"
   fi
 
   log_info "$(lang_pick "正在查询远端备份..." "Querying remote backups...")"
@@ -1335,7 +1349,7 @@ run_restore() {
   local -a remote_search_order=()
   local primary_remote_problem=0
   remote_search_order+=("${selected_restore_remote}")
-  for remote in "${restore_targets[@]}"; do
+  for remote in "${ready_restore_targets[@]}"; do
     if [[ "${remote}" != "${selected_restore_remote}" ]]; then
       remote_search_order+=("${remote}")
     fi
