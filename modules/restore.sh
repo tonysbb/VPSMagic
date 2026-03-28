@@ -461,7 +461,7 @@ _finalize_restore_result() {
     elif [[ "${rollback_enabled}" == "true" ]]; then
       should_rollback=1
       log_warn "$(lang_pick "检测到恢复失败，已根据参数自动执行轻量回滚。" "Restore failure detected. Lightweight rollback will run automatically because the flag is enabled.")"
-    elif [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]] && -t 0; then
+    elif [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" && -t 0 ]]; then
       if confirm "$(lang_pick "检测到恢复失败，是否执行轻量回滚？" "Restore failure detected. Run lightweight rollback?")" "n"; then
         should_rollback=1
       fi
