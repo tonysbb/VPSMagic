@@ -416,6 +416,7 @@ run_init() {
   local backup_primary_target=""
   local backup_async_target=""
   local backup_interactive_targets="true"
+  local remote_mode="manual"
   local detected_host
   detected_host="$(hostname 2>/dev/null || echo 'vps')"
   local -a configured_targets=()
@@ -440,13 +441,48 @@ run_init() {
       echo
     fi
 
-    echo "  $(lang_pick "留空 = 使用默认优先级:" "Leave empty to use the default priority order:")"
-    echo "    1. gdrive:VPSMagicBackup/${detected_host}"
-    echo "    2. onedrive:VPSMagicBackup/${detected_host}"
-    echo "    3. openlist_webdav:backup/${detected_host}"
-    echo "  $(lang_pick "也支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
-    echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
-    read_with_default backup_targets "$(lang_pick "请输入备份目标列表 (可留空使用默认策略)" "Enter backup targets (optional, leave empty for defaults)")" ""
+    echo "  $(lang_pick "请选择你想使用的远端类型:" "Choose the remote type you want to use:")"
+    echo "    1. $(lang_pick "WebDAV / OpenList / AList" "WebDAV / OpenList / AList")"
+    echo "    2. $(lang_pick "S3 兼容对象存储" "S3-compatible object storage")"
+    echo "    3. $(lang_pick "Google Drive / OneDrive" "Google Drive / OneDrive")"
+    echo "    4. $(lang_pick "我已经有完整 rclone 路径，直接输入" "I already have a full rclone target path")"
+    echo
+    local remote_selection=""
+    read -r -p "$(lang_pick "请选择远端类型编号" "Select the remote type") [$(prompt_default_label): 4]: " remote_selection
+    remote_selection="${remote_selection:-4}"
+    case "${remote_selection}" in
+      1) remote_mode="webdav" ;;
+      2) remote_mode="s3" ;;
+      3) remote_mode="drive" ;;
+      *) remote_mode="manual" ;;
+    esac
+
+    case "${remote_mode}" in
+      webdav)
+        echo
+        echo "  $(lang_pick "示例格式:" "Example format:") openlist_webdav:backup/{hostname}"
+        echo "  $(lang_pick "如果你只有一个 WebDAV/OpenList remote，可以先只填一个完整路径。" "If you only have one WebDAV/OpenList remote, start with a single full path.")"
+        read_with_default backup_targets "$(lang_pick "请输入 WebDAV/OpenList 备份目标" "Enter the WebDAV/OpenList backup target")" "openlist_webdav:backup/{hostname}"
+        ;;
+      s3)
+        echo
+        echo "  $(lang_pick "示例格式:" "Example format:") s3:mybucket/vpsmagic/{hostname}"
+        echo "  $(lang_pick "如果你使用 OCI / R2，也属于这一类，只是 remote 名称不同。" "OCI and R2 also belong to this category; only the remote name differs.")"
+        read_with_default backup_targets "$(lang_pick "请输入 S3 兼容备份目标" "Enter the S3-compatible backup target")" "s3:mybucket/vpsmagic/{hostname}"
+        ;;
+      drive)
+        echo
+        echo "  $(lang_pick "示例格式:" "Example format:") gdrive:VPSMagicBackup/{hostname}"
+        echo "  $(lang_pick "如果你用 OneDrive，也可以填 onedrive:VPSMagicBackup/{hostname}" "If you use OneDrive, you can also use onedrive:VPSMagicBackup/{hostname}")"
+        read_with_default backup_targets "$(lang_pick "请输入网盘备份目标" "Enter the cloud drive backup target")" "gdrive:VPSMagicBackup/{hostname}"
+        ;;
+      manual)
+        echo
+        echo "  $(lang_pick "支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
+        echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
+        read_with_default backup_targets "$(lang_pick "请输入备份目标列表" "Enter backup targets")" ""
+        ;;
+    esac
 
     if [[ -n "${backup_targets}" ]]; then
       parse_list "${backup_targets}" configured_targets
