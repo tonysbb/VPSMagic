@@ -65,6 +65,11 @@ log_warn() {
   ((_WARN_COUNT++)) || true
 }
 
+log_warn_soft() {
+  echo -e "${_CLR_YELLOW}[WARN $(_ts)]${_CLR_NC} $*"
+  _log_to_file "[WARN_SOFT] $*"
+}
+
 log_error() {
   echo -e "${_CLR_RED}[ERROR $(_ts)]${_CLR_NC} $*" >&2
   _log_to_file "[ERROR] $*"

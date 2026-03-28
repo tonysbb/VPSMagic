@@ -1266,16 +1266,16 @@ run_restore() {
     local -a remote_files=()
     local remote_error=""
     if ! _preflight_restore_remote_target "${remote}" remote_error; then
-      log_warn "$(lang_pick "远端预检查失败" "Remote preflight failed"): ${remote}"
-      [[ -n "${remote_error}" ]] && log_warn "  ${remote_error}"
+      log_warn_soft "$(lang_pick "远端预检查失败" "Remote preflight failed"): ${remote}"
+      [[ -n "${remote_error}" ]] && log_warn_soft "  ${remote_error}"
       if [[ "${remote}" == "${selected_restore_remote}" ]]; then
         primary_remote_problem=1
       fi
       continue
     fi
     if ! _list_remote_backup_archives "${remote}" remote_files remote_error; then
-      log_warn "$(lang_pick "远端访问失败" "Remote access failed"): ${remote}"
-      [[ -n "${remote_error}" ]] && log_warn "  ${remote_error}"
+      log_warn_soft "$(lang_pick "远端访问失败" "Remote access failed"): ${remote}"
+      [[ -n "${remote_error}" ]] && log_warn_soft "  ${remote_error}"
       if [[ "${remote}" == "${selected_restore_remote}" ]]; then
         primary_remote_problem=1
       fi
