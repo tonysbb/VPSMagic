@@ -223,8 +223,14 @@ _ensure_docker_stack_installed() {
     apt)
       _ensure_restore_apt_index
       _apt_install_noninteractive ca-certificates curl gnupg lsb-release >/dev/null 2>&1 || true
-      if ! _apt_install_noninteractive docker.io docker-compose-plugin; then
-        return 1
+      if _apt_package_available "docker-ce" && _apt_package_available "docker-compose-plugin"; then
+        if ! _apt_install_noninteractive docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+          return 1
+        fi
+      else
+        if ! _apt_install_noninteractive docker.io docker-compose-plugin; then
+          return 1
+        fi
       fi
       ;;
     apk)
