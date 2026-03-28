@@ -230,12 +230,10 @@ validate_config() {
       fi
       ;;
     restore)
-      # restore 模式现在支持 --local，仅在非 local 模式时检查 rclone
+      # restore 模式支持空机恢复；rclone 缺失时由 restore 流程内自行尝试安装
       if [[ -z "${RESTORE_LOCAL_FILE:-}" ]]; then
         if ! command -v rclone >/dev/null 2>&1; then
-          log_error "$(lang_pick "rclone 未安装。" "rclone is not installed.")"
-          log_info "  $(lang_pick "安装" "Install"): curl https://rclone.org/install.sh | sudo bash"
-          ((errors+=1))
+          log_warn "$(lang_pick "rclone 未安装，restore 将在需要时尝试自动安装。" "rclone is not installed. Restore will try to install it when needed.")"
         fi
       fi
       ;;

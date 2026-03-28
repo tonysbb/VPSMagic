@@ -211,6 +211,41 @@ _ensure_rclone_installed() {
   command -v rclone >/dev/null 2>&1
 }
 
+_ensure_docker_stack_installed() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local pm=""
+  pm="$(detect_pkg_manager)"
+  log_info "  尝试安装 Docker / Compose..."
+  case "${pm}" in
+    apt)
+      _ensure_restore_apt_index
+      _apt_install_noninteractive ca-certificates curl gnupg lsb-release >/dev/null 2>&1 || true
+      if ! _apt_install_noninteractive docker.io docker-compose-plugin; then
+        return 1
+      fi
+      ;;
+    apk)
+      apk add --quiet docker docker-cli-compose >/dev/null 2>&1 || return 1
+      ;;
+    dnf|yum)
+      if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+        :
+      else
+        return 1
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  systemctl enable --now docker >/dev/null 2>&1 || true
+  command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
 _ensure_proxy_service_package() {
   local svc="$1"
   local pm=""
@@ -494,7 +529,7 @@ _finalize_restore_result() {
   fi
 
   if [[ -d "${snapshot_dir}" ]]; then
-    if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]] && -t 0; then
+    if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" && -t 0 ]]; then
       if confirm "$(lang_pick "恢复成功，是否删除本次临时快照？" "Restore succeeded. Delete the temporary snapshot?")" "y"; then
         rm -rf "${snapshot_dir}" 2>/dev/null || true
       fi
@@ -653,6 +688,35 @@ _list_local_restore_candidates() {
   done
 
   eval "${out_var}=(\"\${ordered[@]}\")"
+}
+
+_list_remote_backup_archives() {
+  local remote="$1"
+  local out_var="$2"
+  local err_var="$3"
+  local output=""
+  local rc=0
+  local -a collected=()
+  local fname=""
+
+  output="$(rclone lsf "${remote}/" --files-only 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    printf -v "${err_var}" '%s' "$(printf '%s\n' "${output}" | head -1)"
+    eval "${out_var}=()"
+    return "${rc}"
+  fi
+
+  while IFS= read -r fname; do
+    fname="$(echo "${fname}" | xargs)"
+    [[ -n "${fname}" ]] || continue
+    if [[ "${fname}" == *.tar.gz || "${fname}" == *.tar.gz.enc ]]; then
+      collected+=("${fname}")
+    fi
+  done <<< "$(printf '%s\n' "${output}" | sort -r)"
+
+  printf -v "${err_var}" '%s' ""
+  eval "${out_var}=(\"\${collected[@]}\")"
+  return 0
 }
 
 _order_restore_modules() {
@@ -995,18 +1059,26 @@ run_restore() {
     log_separator "─" 56
     echo
 
+    echo "   0) $(lang_pick "搜索云端最新备份" "Search remote backups instead")"
+    log_separator "─" 56
+    echo
+
     local local_selection=""
-    read -r -p "$(lang_pick "请选择本地备份编号" "Select the local backup") [$(prompt_default_label): 1 ($(lang_pick "最新" "latest"))]: " local_selection
+    read -r -p "$(lang_pick "请选择本地备份编号" "Select the local backup") [$(prompt_default_label): 1 ($(lang_pick "最新" "latest")), 0=$(lang_pick "云端" "remote")]: " local_selection
     local_selection="${local_selection:-1}"
-    if ! [[ "${local_selection}" =~ ^[0-9]+$ ]] || (( local_selection < 1 || local_selection > ${#local_backups[@]} )); then
+    if ! [[ "${local_selection}" =~ ^[0-9]+$ ]] || (( local_selection < 0 || local_selection > ${#local_backups[@]} )); then
       log_error "$(lang_pick "无效的选择" "Invalid selection"): ${local_selection}"
       return 1
     fi
 
-    local selected_local_archive="${local_backups[$((local_selection-1))]}"
-    log_info "$(lang_pick "选择本地恢复" "Selected local restore"): ${selected_local_archive}"
-    _restore_from_local "${selected_local_archive}"
-    return $?
+    if (( local_selection == 0 )); then
+      log_info "$(lang_pick "已切换为搜索云端备份。" "Switching to remote backup search.")"
+    else
+      local selected_local_archive="${local_backups[$((local_selection-1))]}"
+      log_info "$(lang_pick "选择本地恢复" "Selected local restore"): ${selected_local_archive}"
+      _restore_from_local "${selected_local_archive}"
+      return $?
+    fi
   fi
 
   if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
@@ -1017,8 +1089,11 @@ run_restore() {
   fi
 
   if ! command -v rclone >/dev/null 2>&1; then
-    log_error "$(lang_pick "rclone 未安装。请先安装" "rclone is not installed. Install it first"): curl https://rclone.org/install.sh | sudo bash"
-    return 1
+    if ! _ensure_rclone_installed; then
+      log_error "$(lang_pick "rclone 未安装且自动安装失败。" "rclone is not installed and automatic installation failed.")"
+      log_info "  $(lang_pick "安装" "Install"): curl https://rclone.org/install.sh | sudo bash"
+      return 1
+    fi
   fi
 
   local -a restore_targets=()
@@ -1078,13 +1153,18 @@ run_restore() {
   done
 
   for remote in "${remote_search_order[@]}"; do
-    while IFS= read -r fname; do
-      fname="$(echo "${fname}" | xargs)"
-      if [[ "${fname}" == *.tar.gz || "${fname}" == *.tar.gz.enc ]]; then
-        available_backups+=("${fname}")
-        available_backup_remotes+=("${remote}")
-      fi
-    done < <(rclone lsf "${remote}/" "${rclone_opts[@]}" --files-only 2>/dev/null | sort -r)
+    local -a remote_files=()
+    local remote_error=""
+    if ! _list_remote_backup_archives "${remote}" remote_files remote_error; then
+      log_warn "$(lang_pick "远端访问失败" "Remote access failed"): ${remote}"
+      [[ -n "${remote_error}" ]] && log_warn "  ${remote_error}"
+      continue
+    fi
+
+    for fname in "${remote_files[@]}"; do
+      available_backups+=("${fname}")
+      available_backup_remotes+=("${remote}")
+    done
 
     if (( ${#available_backups[@]} > 0 )); then
       if [[ "${remote}" != "${selected_restore_remote}" ]]; then
@@ -1332,9 +1412,19 @@ _restore_docker_compose() {
   log_step "恢复 Docker Compose 项目..."
 
   if ! command -v docker >/dev/null 2>&1; then
-    log_warn "Docker 未安装，请先安装 Docker。"
-    summary_add "warn" "恢复 Docker Compose" "Docker 未安装"
-    return 0
+    if ! _ensure_docker_stack_installed; then
+      log_warn "Docker 未安装且自动安装失败，请先安装 Docker。"
+      summary_add "warn" "恢复 Docker Compose" "Docker 未安装且自动安装失败"
+      return 0
+    fi
+  fi
+
+  if ! docker compose version >/dev/null 2>&1; then
+    if ! _ensure_docker_stack_installed; then
+      log_warn "Docker Compose 不可用且自动安装失败，请先安装 Docker Compose。"
+      summary_add "warn" "恢复 Docker Compose" "Docker Compose 不可用且自动安装失败"
+      return 0
+    fi
   fi
 
   for proj_dir in "${mod_dir}"/*/; do
@@ -1448,8 +1538,10 @@ _restore_docker_standalone() {
   log_step "恢复独立 Docker 容器..."
 
   if ! command -v docker >/dev/null 2>&1; then
-    summary_add "warn" "恢复独立容器" "Docker 未安装"
-    return 0
+    if ! _ensure_docker_stack_installed; then
+      summary_add "warn" "恢复独立容器" "Docker 未安装且自动安装失败"
+      return 0
+    fi
   fi
 
   local manual_count=0
