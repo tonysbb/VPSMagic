@@ -1038,6 +1038,7 @@ run_restore() {
 
   local start_ts
   start_ts="$(date +%s)"
+  local force_remote_search=0
 
   log_banner "$(lang_pick "VPS Magic Backup — 恢复模式" "VPS Magic Backup — Restore Mode")"
 
@@ -1073,6 +1074,7 @@ run_restore() {
 
     if (( local_selection == 0 )); then
       log_info "$(lang_pick "已切换为搜索云端备份。" "Switching to remote backup search.")"
+      force_remote_search=1
     else
       local selected_local_archive="${local_backups[$((local_selection-1))]}"
       log_info "$(lang_pick "选择本地恢复" "Selected local restore"): ${selected_local_archive}"
@@ -1081,7 +1083,7 @@ run_restore() {
     fi
   fi
 
-  if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+  if (( force_remote_search == 0 )) && [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
     if ! confirm "$(lang_pick "未找到本地备份，是否搜索云端备份？" "No local backup found. Search remote backups?")" "y"; then
       log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0

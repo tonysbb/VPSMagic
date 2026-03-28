@@ -2,6 +2,12 @@
 
 All commit summaries recorded by deploy.sh.
 
+## [2026-03-29 01:02:32]
+
+```text
+fix: skip duplicate remote-search prompt after local bypass
+```
+
 ## [2026-03-29 00:56:31]
 
 ```text
