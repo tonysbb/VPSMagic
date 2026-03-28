@@ -45,6 +45,7 @@ SHOW_HELP_ONLY=0
 SHOW_VERSION_ONLY=0
 RESTORE_LOCAL_FILE="${RESTORE_LOCAL_FILE:-}"
 RESTORE_AUTO_CONFIRM="${RESTORE_AUTO_CONFIRM:-0}"
+RESTORE_ROLLBACK_ON_FAILURE="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
 CLI_BACKUP_DESTINATION=""
 CLI_BACKUP_REMOTE_OVERRIDE=""
 CLI_UI_LANG=""
@@ -127,6 +128,9 @@ show_help() {
     --dest <mode>     Backup destination mode: local or remote
     --remote <path>   Use a temporary rclone remote path for this run
     --lang <lang>     Interface language: zh or en
+    --auto-confirm    Skip interactive confirmation prompts during restore
+    --rollback-on-failure
+                      Auto-run lightweight rollback if restore fails
     --verbose         Show verbose debug logs
     --version, -v     Show version
 
@@ -157,6 +161,9 @@ show_help() {
 
     # Restore from a local archive
     vpsmagic restore --local /path/to/backup.tar.gz
+
+    # Unattended restore with lightweight auto-rollback on failure
+    vpsmagic restore --auto-confirm --rollback-on-failure
 
     # Online migration to a new VPS
     vpsmagic migrate root@new-vps
@@ -196,6 +203,9 @@ EOF
     --dest <mode>     备份目标模式: local 或 remote
     --remote <path>   本次执行使用指定 rclone 远端路径
     --lang <lang>     界面语言: zh 或 en
+    --auto-confirm    restore 时跳过交互确认
+    --rollback-on-failure
+                      restore 失败后自动执行轻量回滚
     --verbose         显示详细调试信息
     --version, -v     显示版本号
 
@@ -226,6 +236,9 @@ EOF
 
     # 从本地文件恢复
     vpsmagic restore --local /path/to/backup.tar.gz
+
+    # 无人值守恢复，失败后自动轻量回滚
+    vpsmagic restore --auto-confirm --rollback-on-failure
 
     # 在线迁移到新 VPS
     vpsmagic migrate root@new-vps
@@ -368,8 +381,31 @@ run_init() {
   echo "    1. gdrive:VPSMagicBackup/${detected_host}"
   echo "    2. onedrive:VPSMagicBackup/${detected_host}"
   echo "    3. openlist_webdav:backup/${detected_host}"
+  echo "  $(lang_pick "也支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
   echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
   read_with_default backup_targets "$(lang_pick "请输入备份目标列表 (可留空使用默认策略)" "Enter backup targets (optional, leave empty for defaults)")" ""
+
+  local -a configured_targets=()
+  if [[ -n "${backup_targets}" ]]; then
+    parse_list "${backup_targets}" configured_targets
+  fi
+  local backup_primary_target=""
+  local backup_async_target=""
+  local backup_interactive_targets="true"
+  if (( ${#configured_targets[@]} > 0 )); then
+    read_with_default backup_primary_target "$(lang_pick "默认主目标 (备份/恢复交互默认项)" "Default primary target (default selection for backup/restore)")" "${configured_targets[0]}"
+    if (( ${#configured_targets[@]} > 1 )); then
+      read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" "${configured_targets[1]}"
+    else
+      read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" ""
+    fi
+  else
+    read_with_default backup_primary_target "$(lang_pick "默认主目标 (可留空)" "Default primary target (optional)")" ""
+    read_with_default backup_async_target "$(lang_pick "异步副本目标 (可留空)" "Async replica target (optional)")" ""
+  fi
+  if ! confirm "$(lang_pick "备份 / 恢复时是否先交互列出远端路径？" "List remote targets interactively before backup / restore?")" "y"; then
+    backup_interactive_targets="false"
+  fi
 
   echo
   echo -e "${_CLR_BOLD}$(lang_pick "第2步: 备份存储" "Step 2: Backup storage")${_CLR_NC}"
@@ -429,9 +465,13 @@ UI_LANG=\"${UI_LANG:-zh}\"
 
 # ---------- Remote storage ----------
 BACKUP_TARGETS=\"${backup_targets}\"
+BACKUP_PRIMARY_TARGET=\"${backup_primary_target}\"
+BACKUP_ASYNC_TARGET=\"${backup_async_target}\"
+BACKUP_INTERACTIVE_TARGETS=\"${backup_interactive_targets}\"
 RCLONE_REMOTE=\"\"
 # RCLONE_CONF=\"\"
 # RCLONE_BW_LIMIT=\"\"
+RESTORE_ROLLBACK_ON_FAILURE=false
 
 # ---------- Backup storage ----------
 BACKUP_ROOT=\"${backup_root}\"
@@ -541,6 +581,8 @@ parse_args() {
               RESTORE_LOCAL_FILE="$2"; shift 2 ;;
             --auto-confirm)
               RESTORE_AUTO_CONFIRM=1; shift ;;
+            --rollback-on-failure)
+              RESTORE_ROLLBACK_ON_FAILURE=true; shift ;;
             *)
               SUBCMD_ARGS+=("$1"); shift ;;
           esac

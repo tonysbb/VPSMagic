@@ -21,9 +21,13 @@ BACKUP_REMOTE_OVERRIDE="${BACKUP_REMOTE_OVERRIDE:-}"
 
 # rclone
 BACKUP_TARGETS="${BACKUP_TARGETS:-}"
+BACKUP_PRIMARY_TARGET="${BACKUP_PRIMARY_TARGET:-}"
+BACKUP_ASYNC_TARGET="${BACKUP_ASYNC_TARGET:-}"
+BACKUP_INTERACTIVE_TARGETS="${BACKUP_INTERACTIVE_TARGETS:-true}"
 RCLONE_REMOTE="${RCLONE_REMOTE:-}"
 RCLONE_CONF="${RCLONE_CONF:-}"
 RCLONE_BW_LIMIT="${RCLONE_BW_LIMIT:-}"
+RESTORE_ROLLBACK_ON_FAILURE="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
 
 # 通知
 NOTIFY_ENABLED="${NOTIFY_ENABLED:-false}"
@@ -75,7 +79,7 @@ _is_allowed_config_key() {
   local key="$1"
   case "${key}" in
     VPSMAGIC_HOME|BACKUP_ROOT|BACKUP_KEEP_LOCAL|BACKUP_KEEP_REMOTE|BACKUP_PREFIX|BACKUP_ENCRYPTION_KEY|BACKUP_DESTINATION|BACKUP_REMOTE_OVERRIDE|\
-    BACKUP_TARGETS|RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|\
+    BACKUP_TARGETS|BACKUP_PRIMARY_TARGET|BACKUP_ASYNC_TARGET|BACKUP_INTERACTIVE_TARGETS|RCLONE_REMOTE|RCLONE_CONF|RCLONE_BW_LIMIT|RESTORE_ROLLBACK_ON_FAILURE|\
     NOTIFY_ENABLED|TG_BOT_TOKEN|TG_CHAT_ID|\
     ENABLE_DOCKER_COMPOSE|ENABLE_DOCKER_STANDALONE|ENABLE_SYSTEMD|ENABLE_REVERSE_PROXY|ENABLE_DATABASE|\
     ENABLE_SSL_CERTS|ENABLE_CRONTAB|ENABLE_FIREWALL|ENABLE_USER_HOME|ENABLE_CUSTOM_PATHS|\
@@ -209,6 +213,11 @@ load_config() {
 validate_config() {
   local mode="${1:-backup}"
   local errors=0
+  local -a configured_targets=()
+  local target=""
+  local found=0
+
+  get_backup_targets configured_targets
 
   case "${mode}" in
     backup|upload)
@@ -246,6 +255,42 @@ validate_config() {
     if [[ -z "${TG_BOT_TOKEN}" || -z "${TG_CHAT_ID}" ]]; then
       log_warn "$(lang_pick "Telegram 通知已启用但 Token/ChatID 未配置，将跳过通知。" "Telegram notifications are enabled but Token/Chat ID is missing. Notifications will be skipped.")"
       NOTIFY_ENABLED="false"
+    fi
+  fi
+
+  if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
+    local expanded_primary=""
+    expanded_primary="$(get_backup_primary_target)"
+    if [[ -n "${expanded_primary}" && ${#configured_targets[@]} -gt 0 ]]; then
+      found=0
+      for target in "${configured_targets[@]}"; do
+        if [[ "${target}" == "${expanded_primary}" ]]; then
+          found=1
+          break
+        fi
+      done
+      if (( found == 0 )); then
+        log_error "$(lang_pick "BACKUP_PRIMARY_TARGET 必须包含在 BACKUP_TARGETS / RCLONE_REMOTE 中" "BACKUP_PRIMARY_TARGET must also exist in BACKUP_TARGETS / RCLONE_REMOTE"): ${expanded_primary}"
+        ((errors+=1))
+      fi
+    fi
+  fi
+
+  if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+    local expanded_async=""
+    expanded_async="$(get_backup_async_target)"
+    if [[ -n "${expanded_async}" && ${#configured_targets[@]} -gt 0 ]]; then
+      found=0
+      for target in "${configured_targets[@]}"; do
+        if [[ "${target}" == "${expanded_async}" ]]; then
+          found=1
+          break
+        fi
+      done
+      if (( found == 0 )); then
+        log_error "$(lang_pick "BACKUP_ASYNC_TARGET 必须包含在 BACKUP_TARGETS / RCLONE_REMOTE 中" "BACKUP_ASYNC_TARGET must also exist in BACKUP_TARGETS / RCLONE_REMOTE"): ${expanded_async}"
+        ((errors+=1))
+      fi
     fi
   fi
 
@@ -292,17 +337,28 @@ get_backup_targets() {
   eval "${result_var}=()"
 
   if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" ]]; then
-    eval "${result_var}+=(\"\${BACKUP_REMOTE_OVERRIDE}\")"
+    local override_expanded=""
+    override_expanded="$(expand_backup_target_template "${BACKUP_REMOTE_OVERRIDE}")"
+    eval "${result_var}+=(\"\${override_expanded}\")"
     return 0
   fi
 
   if [[ -n "${BACKUP_TARGETS:-}" ]]; then
-    parse_list "${BACKUP_TARGETS}" "${result_var}"
+    local -a raw_targets=()
+    parse_list "${BACKUP_TARGETS}" raw_targets
+    local raw_target=""
+    for raw_target in "${raw_targets[@]}"; do
+      local expanded_target=""
+      expanded_target="$(expand_backup_target_template "${raw_target}")"
+      eval "${result_var}+=(\"\${expanded_target}\")"
+    done
     return 0
   fi
 
   if [[ -n "${RCLONE_REMOTE:-}" ]]; then
-    eval "${result_var}+=(\"\${RCLONE_REMOTE}\")"
+    local legacy_expanded=""
+    legacy_expanded="$(expand_backup_target_template "${RCLONE_REMOTE}")"
+    eval "${result_var}+=(\"\${legacy_expanded}\")"
     return 0
   fi
 
@@ -312,6 +368,33 @@ get_backup_targets() {
     \"onedrive:VPSMagicBackup/${host_name}\"
     \"openlist_webdav:backup/${host_name}\"
   )"
+}
+
+expand_backup_target_template() {
+  local target="${1:-}"
+  local host_name=""
+  host_name="$(hostname 2>/dev/null || echo 'vps')"
+  target="${target//\{hostname\}/${host_name}}"
+  printf '%s\n' "${target}"
+}
+
+get_backup_primary_target() {
+  if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
+    expand_backup_target_template "${BACKUP_PRIMARY_TARGET}"
+    return 0
+  fi
+  local -a backup_targets=()
+  get_backup_targets backup_targets
+  if (( ${#backup_targets[@]} > 0 )); then
+    printf '%s\n' "${backup_targets[0]}"
+  fi
+}
+
+get_backup_async_target() {
+  if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+    expand_backup_target_template "${BACKUP_ASYNC_TARGET}"
+    return 0
+  fi
 }
 
 # ---------- 打印当前配置 ----------
@@ -330,6 +413,14 @@ print_config() {
     echo "    ${idx}. ${target}"
     ((idx+=1))
   done
+  if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
+    echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_backup_primary_target)"
+  fi
+  if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+    echo "  $(lang_pick "异步副本目标" "Async replica target"): $(get_backup_async_target)"
+  fi
+  echo "  $(lang_pick "远端交互选择" "Interactive remote selection"): ${BACKUP_INTERACTIVE_TARGETS}"
+  echo "  $(lang_pick "失败后自动回滚" "Auto rollback on failure"): ${RESTORE_ROLLBACK_ON_FAILURE}"
   echo "  $(lang_pick "本地保留" "Local retention"):         ${BACKUP_KEEP_LOCAL} $(lang_pick "份" "copies")"
   echo "  $(lang_pick "远端保留" "Remote retention"):         ${BACKUP_KEEP_REMOTE} $(lang_pick "份" "copies")"
   if [[ -n "${BACKUP_ENCRYPTION_KEY}" ]]; then

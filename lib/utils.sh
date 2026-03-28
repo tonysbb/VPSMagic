@@ -329,6 +329,14 @@ confirm() {
   [[ "${answer}" =~ ^[Yy]$ ]]
 }
 
+confirm_exact() {
+  local prompt="${1:-请输入确认词}"
+  local expected="${2:-yes}"
+  local answer=""
+  read -r -p "${prompt} [${expected}]: " answer
+  [[ "${answer}" == "${expected}" ]]
+}
+
 read_with_default() {
   local __var_name="$1"
   local prompt="$2"

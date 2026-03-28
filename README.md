@@ -77,7 +77,7 @@
 
 ## ✅ 最近联调结论与迁移注意事项
 
-以下结论来自一轮真实的跨机恢复联调：源机为 `NCPDE`，目标机为接近空机状态的 `WAWHK`，实际验证了 `openlist`、`aria2`、`pdfmaker`、`caddy`、`rclone`、`downnow-bot` 等链路。
+以下结论来自一轮真实的跨机恢复联调：源机与接近空机状态的目标机之间，实际验证了 `openlist`、`aria2`、`pdfmaker`、`caddy`、`rclone`、`downnow-bot` 等链路。
 
 ### 已验证通过的恢复能力
 
@@ -404,6 +404,10 @@ vpsmagic migrate root@new-vps --skip-restore
 | 配置项 | 默认值 | 说明 |
 |--------|---------|------|
 | `BACKUP_TARGETS` | (推荐) | 逗号分隔的远端优先级列表，例如 `gdrive:VPSBackup/vps1,onedrive:VPSBackup/vps1,openlist_webdav:139Cloud/backup/vps1` |
+| `BACKUP_PRIMARY_TARGET` | (可选) | 备份/恢复交互默认选中的主目标，例如 `OOS:mybucket/vpsmagic/{hostname}` |
+| `BACKUP_ASYNC_TARGET` | (可选) | 备份完成后异步复制一份的目标，例如 `R2:mybucket/vpsmagic/{hostname}` |
+| `BACKUP_INTERACTIVE_TARGETS` | `true` | 备份/恢复前是否先列出可选远端路径并允许用户交互选择 |
+| `RESTORE_ROLLBACK_ON_FAILURE` | `false` | `restore --rollback-on-failure` 的默认行为开关；开启后恢复失败将自动执行轻量回滚 |
 | `RCLONE_REMOTE` | (兼容旧配置) | 单一路径，未设置 `BACKUP_TARGETS` 时使用 |
 | `BACKUP_ROOT` | `/opt/vpsmagic/backups` | 本地备份目录 |
 | `BACKUP_KEEP_LOCAL` | `3` | 本地保留份数 |
@@ -416,7 +420,8 @@ vpsmagic migrate root@new-vps --skip-restore
 
 - 推荐将 Oracle Object Storage 配置成 `rclone` 的 S3 兼容 remote，然后直接上传。
 - 不建议把对象存储默认 `mount` 成文件系统后再做备份，这会增加稳定性和权限问题。
-- 典型用法：`vpsmagic backup --remote oracle_s3:bucket-name/vps1`
+- 推荐在 `BACKUP_TARGETS` / `BACKUP_PRIMARY_TARGET` / `BACKUP_ASYNC_TARGET` 中填写完整路径，并使用 `{hostname}` 占位符避免跨主机写死路径。
+- 典型用法：`vpsmagic backup --remote oracle_s3:bucket-name/vpsmagic/{hostname}`
 
 ### Rsync 说明
 

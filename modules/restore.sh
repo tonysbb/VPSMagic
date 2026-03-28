@@ -289,6 +289,231 @@ _preserve_ssh_access_after_firewall_restore() {
   fi
 }
 
+_restore_snapshot_root() {
+  printf '%s\n' "${BACKUP_ROOT}/restore/snapshots"
+}
+
+_collect_restore_snapshot_paths() {
+  local backup_data_dir="$1"
+  local out_var="$2"
+  local -a collected=()
+  local path=""
+
+  for path in \
+    /etc/caddy \
+    /etc/nginx \
+    /etc/apache2 \
+    /etc/systemd/system \
+    /etc/ufw \
+    /etc/cron.d \
+    /etc/cron.daily \
+    /etc/cron.hourly \
+    /etc/cron.monthly \
+    /etc/cron.weekly
+  do
+    [[ -e "${path}" ]] || continue
+    if ! _append_unique_line "${path}" "${collected[@]}"; then
+      collected+=("${path}")
+    fi
+  done
+
+  if [[ -d "${backup_data_dir}/docker_compose" ]]; then
+    local proj_dir=""
+    for proj_dir in "${backup_data_dir}/docker_compose"/*/; do
+      [[ -d "${proj_dir}" ]] || continue
+      local compose_project_name=""
+      compose_project_name="$(basename "${proj_dir}")"
+      [[ -f "${proj_dir}/_compose_project_name.txt" ]] && compose_project_name="$(cat "${proj_dir}/_compose_project_name.txt")"
+      local original_path=""
+      [[ -f "${proj_dir}/_original_path.txt" ]] && original_path="$(cat "${proj_dir}/_original_path.txt")"
+      [[ -n "${original_path}" ]] || original_path="/opt/${compose_project_name}"
+
+      local candidate=""
+      for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml .env; do
+        local file_path="${original_path}/${candidate}"
+        [[ -e "${file_path}" ]] || continue
+        if ! _append_unique_line "${file_path}" "${collected[@]}"; then
+          collected+=("${file_path}")
+        fi
+      done
+    done
+  fi
+
+  eval "${out_var}=(\"\${collected[@]}\")"
+}
+
+_create_restore_snapshot() {
+  local backup_data_dir="$1"
+  local selected_label="$2"
+  local snapshot_root=""
+  snapshot_root="$(_restore_snapshot_root)"
+  safe_mkdir "${snapshot_root}"
+
+  local safe_label=""
+  safe_label="$(printf '%s' "$(basename "${selected_label}")" | tr '/: ' '___')"
+  local snapshot_dir="${snapshot_root}/pre_restore_$(date +%Y%m%d_%H%M%S)_${safe_label}"
+  safe_mkdir "${snapshot_dir}"
+
+  local -a snapshot_paths=()
+  _collect_restore_snapshot_paths "${backup_data_dir}" snapshot_paths
+
+  if (( ${#snapshot_paths[@]} > 0 )); then
+    tar -czf "${snapshot_dir}/filesystem.tar.gz" -P "${snapshot_paths[@]}" >/dev/null 2>&1 || true
+  fi
+
+  if command -v crontab >/dev/null 2>&1; then
+    crontab -l > "${snapshot_dir}/root.crontab" 2>/dev/null || true
+  fi
+
+  if command -v iptables-save >/dev/null 2>&1; then
+    iptables-save > "${snapshot_dir}/iptables.rules" 2>/dev/null || true
+  fi
+
+  if command -v ip6tables-save >/dev/null 2>&1; then
+    ip6tables-save > "${snapshot_dir}/ip6tables.rules" 2>/dev/null || true
+  fi
+
+  if command -v nft >/dev/null 2>&1; then
+    nft list ruleset > "${snapshot_dir}/nft.rules" 2>/dev/null || true
+  fi
+
+  {
+    printf 'selected=%s\n' "${selected_label}"
+    printf 'created_at=%s\n' "$(date +%Y-%m-%dT%H:%M:%S%z)"
+    printf 'paths=%s\n' "${#snapshot_paths[@]}"
+  } > "${snapshot_dir}/meta.env"
+
+  printf '%s\n' "${snapshot_dir}"
+}
+
+_rollback_restore_snapshot() {
+  local snapshot_dir="$1"
+  local rc=0
+
+  [[ -d "${snapshot_dir}" ]] || return 1
+
+  if [[ -f "${snapshot_dir}/filesystem.tar.gz" ]]; then
+    tar -xzf "${snapshot_dir}/filesystem.tar.gz" -P >/dev/null 2>&1 || rc=1
+  fi
+
+  if [[ -f "${snapshot_dir}/root.crontab" ]] && command -v crontab >/dev/null 2>&1; then
+    crontab "${snapshot_dir}/root.crontab" >/dev/null 2>&1 || rc=1
+  fi
+
+  if [[ -f "${snapshot_dir}/iptables.rules" ]] && command -v iptables-restore >/dev/null 2>&1; then
+    iptables-restore < "${snapshot_dir}/iptables.rules" >/dev/null 2>&1 || rc=1
+  fi
+
+  if [[ -f "${snapshot_dir}/ip6tables.rules" ]] && command -v ip6tables-restore >/dev/null 2>&1; then
+    ip6tables-restore < "${snapshot_dir}/ip6tables.rules" >/dev/null 2>&1 || rc=1
+  fi
+
+  if [[ -f "${snapshot_dir}/nft.rules" ]] && command -v nft >/dev/null 2>&1; then
+    nft -f "${snapshot_dir}/nft.rules" >/dev/null 2>&1 || rc=1
+  fi
+
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -qi '^Status: active'; then
+    ufw reload >/dev/null 2>&1 || true
+  fi
+
+  return "${rc}"
+}
+
+_restore_has_critical_failure() {
+  local error_count=0
+  error_count="$(summary_get_error_count)"
+  if (( error_count > 0 )); then
+    return 0
+  fi
+
+  local item=""
+  local status=""
+  local module=""
+  for item in "${_SUMMARY_ITEMS[@]}"; do
+    IFS='|' read -r status module _ <<< "${item}"
+    [[ "${status}" == "warn" ]] || continue
+    case "${module}" in
+      "恢复 Docker Compose"|"恢复反向代理"|"恢复 Systemd"|\
+      "健康检查 / Docker Compose"|"健康检查 / Compose 端口"|"健康检查 / Compose 出网"|\
+      "健康检查 / Systemd"|"健康检查 / 反向代理"|"健康检查 / 代理端口")
+        return 0
+        ;;
+    esac
+  done
+
+  return 1
+}
+
+_finalize_restore_result() {
+  local selected="$1"
+  local elapsed="$2"
+  local snapshot_dir="$3"
+  local success_banner="$4"
+  local failure_banner="$5"
+
+  local should_rollback=0
+  local rollback_enabled="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
+
+  if _restore_has_critical_failure; then
+    if [[ -z "${snapshot_dir}" || ! -d "${snapshot_dir}" ]]; then
+      summary_add "warn" "恢复回滚" "$(lang_pick "未生成恢复前快照，无法自动回滚" "no pre-restore snapshot was created; automatic rollback is unavailable")"
+    elif [[ "${rollback_enabled}" == "true" ]]; then
+      should_rollback=1
+      log_warn "$(lang_pick "检测到恢复失败，已根据参数自动执行轻量回滚。" "Restore failure detected. Lightweight rollback will run automatically because the flag is enabled.")"
+    elif [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]] && -t 0; then
+      if confirm "$(lang_pick "检测到恢复失败，是否执行轻量回滚？" "Restore failure detected. Run lightweight rollback?")" "n"; then
+        should_rollback=1
+      fi
+    fi
+
+    if (( should_rollback == 1 )); then
+      if _rollback_restore_snapshot "${snapshot_dir}"; then
+        summary_add "warn" "恢复回滚" "$(lang_pick "已执行轻量回滚，请人工复核系统状态" "lightweight rollback completed; please review the system state manually")"
+      else
+        summary_add "error" "恢复回滚" "$(lang_pick "轻量回滚失败，请手动处理" "lightweight rollback failed; manual intervention required")"
+      fi
+    else
+      if [[ -n "${snapshot_dir}" && -d "${snapshot_dir}" ]]; then
+        summary_add "warn" "恢复回滚" "$(lang_pick "未执行自动回滚，快照保留在" "automatic rollback not executed; snapshot kept at"): ${snapshot_dir}"
+      fi
+    fi
+
+    echo
+    log_separator "═" 56
+    log_error "${failure_banner}"
+    echo "  📦 $(lang_pick "目标备份" "Backup"): ${selected}"
+    echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
+    [[ -n "${snapshot_dir}" ]] && echo "  🧩 $(lang_pick "快照" "Snapshot"): ${snapshot_dir}"
+    log_separator "═" 56
+    echo
+
+    summary_render
+    notify_restore_result "${selected}" "${elapsed}"
+    return 1
+  fi
+
+  if [[ -d "${snapshot_dir}" ]]; then
+    if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]] && -t 0; then
+      if confirm "$(lang_pick "恢复成功，是否删除本次临时快照？" "Restore succeeded. Delete the temporary snapshot?")" "y"; then
+        rm -rf "${snapshot_dir}" 2>/dev/null || true
+      fi
+    fi
+  fi
+
+  echo
+  log_separator "═" 56
+  log_success "${success_banner}"
+  echo "  📦 $(lang_pick "恢复自" "Restored from"): ${selected}"
+  echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
+  log_separator "═" 56
+  echo
+
+  summary_render
+  notify_restore_result "${selected}" "${elapsed}"
+  return 0
+}
+
 _find_compose_file() {
   local project_dir="$1"
   local candidate=""
@@ -405,6 +630,29 @@ _collect_compose_container_names() {
   done < <(docker ps --format '{{.Names}}' --filter "label=com.docker.compose.project=${compose_project}" 2>/dev/null)
 
   eval "${out_var}=(\"\${collected[@]}\")"
+}
+
+_list_local_restore_candidates() {
+  local out_var="$1"
+  local -a ordered=()
+  local -a dirs=(
+    "${BACKUP_ROOT}/archives"
+    "${BACKUP_ROOT}/restore"
+  )
+  local dir=""
+  local file=""
+
+  for dir in "${dirs[@]}"; do
+    [[ -d "${dir}" ]] || continue
+    while IFS= read -r file; do
+      [[ -n "${file}" ]] || continue
+      if ! _append_unique_line "${file}" "${ordered[@]}"; then
+        ordered+=("${file}")
+      fi
+    done < <(list_archive_files_sorted "${dir}" "" "desc")
+  done
+
+  eval "${out_var}=(\"\${ordered[@]}\")"
 }
 
 _order_restore_modules() {
@@ -732,6 +980,42 @@ run_restore() {
   # ==================== 第1步: 列出可用备份 ====================
   log_step "$(lang_pick "第1步: 查找可用备份..." "Step 1: Find available backups...")"
 
+  local -a local_backups=()
+  _list_local_restore_candidates local_backups
+  if (( ${#local_backups[@]} > 0 )); then
+    echo
+    echo -e "${_CLR_BOLD}$(lang_pick "本地可用备份" "Available local backups") ($(lang_pick "共" "total") ${#local_backups[@]} $(lang_pick "份" "files")):${_CLR_NC}"
+    log_separator "─" 56
+    local idx=1
+    local local_bk=""
+    for local_bk in "${local_backups[@]}"; do
+      printf "  %2d) %s (%s)\n" "${idx}" "$(basename "${local_bk}")" "$(dirname "${local_bk}")"
+      ((idx+=1))
+    done
+    log_separator "─" 56
+    echo
+
+    local local_selection=""
+    read -r -p "$(lang_pick "请选择本地备份编号" "Select the local backup") [$(prompt_default_label): 1 ($(lang_pick "最新" "latest"))]: " local_selection
+    local_selection="${local_selection:-1}"
+    if ! [[ "${local_selection}" =~ ^[0-9]+$ ]] || (( local_selection < 1 || local_selection > ${#local_backups[@]} )); then
+      log_error "$(lang_pick "无效的选择" "Invalid selection"): ${local_selection}"
+      return 1
+    fi
+
+    local selected_local_archive="${local_backups[$((local_selection-1))]}"
+    log_info "$(lang_pick "选择本地恢复" "Selected local restore"): ${selected_local_archive}"
+    _restore_from_local "${selected_local_archive}"
+    return $?
+  fi
+
+  if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+    if ! confirm "$(lang_pick "未找到本地备份，是否搜索云端备份？" "No local backup found. Search remote backups?")" "y"; then
+      log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
+      return 0
+    fi
+  fi
+
   if ! command -v rclone >/dev/null 2>&1; then
     log_error "$(lang_pick "rclone 未安装。请先安装" "rclone is not installed. Install it first"): curl https://rclone.org/install.sh | sudo bash"
     return 1
@@ -748,31 +1032,70 @@ run_restore() {
   local rclone_opts=()
   _build_restore_rclone_opts rclone_opts
 
+  local selected_restore_remote=""
+  local preferred_restore_remote=""
+  preferred_restore_remote="$(get_backup_primary_target)"
+  local interactive_targets="${BACKUP_INTERACTIVE_TARGETS:-true}"
+  if [[ "${interactive_targets}" == "true" && -t 0 && ${#restore_targets[@]} -gt 0 ]]; then
+    echo
+    echo -e "${_CLR_BOLD}$(lang_pick "可用远端恢复路径" "Available remote restore targets"):${_CLR_NC}"
+    log_separator "─" 56
+    local idx=1
+    local default_index=1
+    for remote in "${restore_targets[@]}"; do
+      printf "  %2d) %s\n" "${idx}" "${remote}"
+      if [[ -n "${preferred_restore_remote}" && "${remote}" == "${preferred_restore_remote}" ]]; then
+        default_index="${idx}"
+      fi
+      ((idx+=1))
+    done
+    log_separator "─" 56
+    echo
+
+    local remote_selection=""
+    read -r -p "$(lang_pick "请选择恢复远端编号" "Select the restore remote") [$(prompt_default_label): ${default_index}]: " remote_selection
+    remote_selection="${remote_selection:-${default_index}}"
+    if ! [[ "${remote_selection}" =~ ^[0-9]+$ ]] || (( remote_selection < 1 || remote_selection > ${#restore_targets[@]} )); then
+      log_error "$(lang_pick "无效的选择" "Invalid selection"): ${remote_selection}"
+      return 1
+    fi
+    selected_restore_remote="${restore_targets[$((remote_selection-1))]}"
+  elif [[ -n "${preferred_restore_remote}" ]]; then
+    selected_restore_remote="${preferred_restore_remote}"
+  else
+    selected_restore_remote="${restore_targets[0]}"
+  fi
+
   log_info "$(lang_pick "正在查询远端备份..." "Querying remote backups...")"
   local -a available_backups=()
   local -a available_backup_remotes=()
-  local remote=""
+  local -a remote_search_order=()
+  remote_search_order+=("${selected_restore_remote}")
   for remote in "${restore_targets[@]}"; do
-    local -a remote_files=()
+    if [[ "${remote}" != "${selected_restore_remote}" ]]; then
+      remote_search_order+=("${remote}")
+    fi
+  done
+
+  for remote in "${remote_search_order[@]}"; do
     while IFS= read -r fname; do
       fname="$(echo "${fname}" | xargs)"
       if [[ "${fname}" == *.tar.gz || "${fname}" == *.tar.gz.enc ]]; then
-        remote_files+=("${fname}")
+        available_backups+=("${fname}")
+        available_backup_remotes+=("${remote}")
       fi
     done < <(rclone lsf "${remote}/" "${rclone_opts[@]}" --files-only 2>/dev/null | sort -r)
 
-    if [[ ${#remote_files[@]} -eq 0 ]]; then
-      continue
+    if (( ${#available_backups[@]} > 0 )); then
+      if [[ "${remote}" != "${selected_restore_remote}" ]]; then
+        log_info "$(lang_pick "主远端无备份，已切换到" "No backup found in the primary remote. Falling back to"): ${remote}"
+      fi
+      break
     fi
-
-    for fname in "${remote_files[@]}"; do
-      available_backups+=("${fname}")
-      available_backup_remotes+=("${remote}")
-    done
   done
 
   if [[ ${#available_backups[@]} -eq 0 ]]; then
-    log_error "$(lang_pick "在所有候选远端中都没有找到备份文件。" "No backup files were found in any candidate remote.")"
+    log_error "$(lang_pick "所有候选远端均未找到备份文件。" "No backup files were found in any candidate remote.")"
     return 1
   fi
 
@@ -923,7 +1246,7 @@ run_restore() {
   echo
 
   if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
-    if ! confirm "$(lang_pick "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "Confirm restoring the modules above? (back up the current environment first)")" "y"; then
+    if ! confirm_exact "$(lang_pick "输入 yes 确认开始恢复（恢复前建议先备份当前环境）" "Type yes to start the restore (back up the current environment first)")" "yes"; then
       log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0
     fi
@@ -932,6 +1255,10 @@ run_restore() {
   fi
 
   _order_restore_modules restore_modules ordered_restore_modules
+
+  local snapshot_dir=""
+  snapshot_dir="$(_create_restore_snapshot "${backup_data_dir}" "${selected}")"
+  [[ -n "${snapshot_dir}" ]] && log_info "$(lang_pick "已创建恢复前轻量快照" "Created lightweight pre-restore snapshot"): ${snapshot_dir}"
 
   # ==================== 第7步: 执行恢复 ====================
   log_step "$(lang_pick "第7步: 执行恢复..." "Step 7: Run restore...")"
@@ -983,17 +1310,12 @@ run_restore() {
   end_ts="$(date +%s)"
   local elapsed
   elapsed="$(elapsed_time "${start_ts}" "${end_ts}")"
-
-  echo
-  log_separator "═" 56
-  log_success "$(lang_pick "恢复完成!" "Restore completed!")"
-  echo "  📦 $(lang_pick "恢复自" "Restored from"): ${selected}"
-  echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
-  log_separator "═" 56
-  echo
-
-  summary_render
-  notify_restore_result "${selected}" "${elapsed}"
+  _finalize_restore_result \
+    "${selected}" \
+    "${elapsed}" \
+    "${snapshot_dir}" \
+    "$(lang_pick "恢复完成!" "Restore completed!")" \
+    "$(lang_pick "恢复失败!" "Restore failed!")" || return 1
 
   echo -e "${_CLR_BOLD}${_CLR_YELLOW}$(lang_pick "建议操作" "Recommended actions"):${_CLR_NC}"
   echo "  1. $(lang_pick "检查所有服务是否正常运行" "Check whether all services are running normally")"
@@ -1821,7 +2143,7 @@ _restore_from_local() {
   echo
 
   if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
-    if ! confirm "$(lang_pick "确认开始恢复以上模块？（恢复前建议先备份当前环境）" "Confirm restoring the modules above? (back up the current environment first)")" "y"; then
+    if ! confirm_exact "$(lang_pick "输入 yes 确认开始恢复（恢复前建议先备份当前环境）" "Type yes to start the restore (back up the current environment first)")" "yes"; then
       log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0
     fi
@@ -1830,6 +2152,10 @@ _restore_from_local() {
   fi
 
   _order_restore_modules restore_modules ordered_restore_modules
+
+  local snapshot_dir=""
+  snapshot_dir="$(_create_restore_snapshot "${backup_data_dir}" "${selected}")"
+  [[ -n "${snapshot_dir}" ]] && log_info "$(lang_pick "已创建恢复前轻量快照" "Created lightweight pre-restore snapshot"): ${snapshot_dir}"
 
   # ==================== 执行恢复 ====================
   log_step "$(lang_pick "第5步: 执行恢复..." "Step 5: Run restore...")"
@@ -1859,17 +2185,12 @@ _restore_from_local() {
   end_ts="$(date +%s)"
   local elapsed
   elapsed="$(elapsed_time "${start_ts}" "${end_ts}")"
-
-  echo
-  log_separator "═" 56
-  log_success "$(lang_pick "恢复完成! (本地文件模式)" "Restore completed! (local file mode)")"
-  echo "  📦 $(lang_pick "恢复自" "Restored from"): ${selected}"
-  echo "  ⏱  $(lang_pick "耗时" "Elapsed"): ${elapsed}"
-  log_separator "═" 56
-  echo
-
-  summary_render
-  notify_restore_result "${selected}" "${elapsed}"
+  _finalize_restore_result \
+    "${selected}" \
+    "${elapsed}" \
+    "${snapshot_dir}" \
+    "$(lang_pick "恢复完成! (本地文件模式)" "Restore completed! (local file mode)")" \
+    "$(lang_pick "恢复失败! (本地文件模式)" "Restore failed! (local file mode)")" || return 1
 
   echo -e "${_CLR_BOLD}${_CLR_YELLOW}$(lang_pick "建议操作" "Recommended actions"):${_CLR_NC}"
   echo "  1. $(lang_pick "检查所有服务是否正常运行" "Check whether all services are running normally")"

@@ -284,6 +284,22 @@ run_backup() {
       log_warn "$(lang_pick "远端上传失败，但本地备份已保留。" "Remote upload failed, but the local backup has been kept.")"
       upload_status="failed"
       upload_reason="$(lang_pick "远端上传失败，本地备份已保留" "remote upload failed, local backup kept")"
+    elif [[ "${LAST_BACKUP_UPLOAD_SKIPPED:-0}" == "1" ]]; then
+      upload_status="skipped"
+      upload_reason="$(lang_pick "本次仅本地备份" "local-only backup for this run")"
+    else
+      uploaded_remote="${LAST_BACKUP_REMOTE_TARGET:-}"
+      upload_status="ok"
+      upload_reason="${uploaded_remote:-$(lang_pick "远端上传成功" "remote upload succeeded")}"
+    fi
+  elif [[ -t 0 ]]; then
+    if ! run_upload "${archive}" "${sum_file}"; then
+      log_warn "$(lang_pick "远端上传失败，但本地备份已保留。" "Remote upload failed, but the local backup has been kept.")"
+      upload_status="failed"
+      upload_reason="$(lang_pick "远端上传失败，本地备份已保留" "remote upload failed, local backup kept")"
+    elif [[ "${LAST_BACKUP_UPLOAD_SKIPPED:-0}" == "1" ]]; then
+      upload_status="skipped"
+      upload_reason="$(lang_pick "本次仅本地备份" "local-only backup for this run")"
     else
       uploaded_remote="${LAST_BACKUP_REMOTE_TARGET:-}"
       upload_status="ok"
