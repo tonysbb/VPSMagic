@@ -442,11 +442,15 @@ vpsmagic migrate root@new-vps --skip-restore
 - 恢复前必须输入精确的 `yes` 才会开始执行。
 - 恢复前会创建轻量快照；恢复失败后不会立即回滚，而是在整轮恢复和健康检查结束后再判断。
 - 默认不自动回滚；可通过 `restore --rollback-on-failure` 在无人值守场景下视同强确认，失败后自动执行轻量回滚。
+- 轻量快照目录中会保留：
+  - `included_paths.txt`：本次纳入配置级快照的路径清单
+  - `rollback_scope.txt`：本次回滚边界说明
+  - `meta.env`：快照元数据
 
 ### 已知问题
 
 - 远端恢复前虽然已加入 `rclone remote` 和 `OCI` 凭据预检查，并会给出复制/本地恢复指引，但工具仍不会自动生成 `rclone.conf` 或 `/root/.oci/config`。首次空机远端恢复前，目标机仍需具备这些前置凭据。
-- 轻量回滚仅覆盖配置级内容，例如反代、systemd、cron、防火墙规则和 compose 配置；不承诺回滚卷数据、数据库导入结果或业务副作用。
+- 轻量回滚仅覆盖配置级内容，例如反代、systemd、cron、防火墙规则和 compose 配置；不承诺回滚卷数据、数据库导入结果或业务副作用。相关边界会随快照写入 `rollback_scope.txt` 与 `included_paths.txt`。
 - Docker / Compose 自动安装目前主要覆盖 Debian / Ubuntu 路径，其他发行版仍属于尽力而为。
 - 当前使用的 `git-deploy` 推送脚本内部是 `git add .`，会把未跟踪文件一起提交，使用时需要额外注意工作区干净度。
 

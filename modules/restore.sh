@@ -340,6 +340,10 @@ _restore_snapshot_root() {
   printf '%s\n' "${BACKUP_ROOT}/restore/snapshots"
 }
 
+_restore_rollback_scope_note() {
+  printf '%s\n' "$(lang_pick "仅回滚配置级内容，不回滚卷数据、数据库结果或业务副作用" "configuration-only rollback; volumes, database results, and business side effects are not reverted")"
+}
+
 _collect_restore_snapshot_paths() {
   local backup_data_dir="$1"
   local out_var="$2"
@@ -408,6 +412,13 @@ _create_restore_snapshot() {
     tar -czf "${snapshot_dir}/filesystem.tar.gz" -P "${snapshot_paths[@]}" >/dev/null 2>&1 || true
   fi
 
+  printf '%s\n' "$(_restore_rollback_scope_note)" > "${snapshot_dir}/rollback_scope.txt"
+  if (( ${#snapshot_paths[@]} > 0 )); then
+    printf '%s\n' "${snapshot_paths[@]}" | sort > "${snapshot_dir}/included_paths.txt"
+  else
+    : > "${snapshot_dir}/included_paths.txt"
+  fi
+
   if command -v crontab >/dev/null 2>&1; then
     crontab -l > "${snapshot_dir}/root.crontab" 2>/dev/null || true
   fi
@@ -428,6 +439,7 @@ _create_restore_snapshot() {
     printf 'selected=%s\n' "${selected_label}"
     printf 'created_at=%s\n' "$(date +%Y-%m-%dT%H:%M:%S%z)"
     printf 'paths=%s\n' "${#snapshot_paths[@]}"
+    printf 'scope=%s\n' "$(_restore_rollback_scope_note)"
   } > "${snapshot_dir}/meta.env"
 
   printf '%s\n' "${snapshot_dir}"
@@ -507,22 +519,22 @@ _finalize_restore_result() {
       summary_add "warn" "恢复回滚" "$(lang_pick "未生成恢复前快照，无法自动回滚" "no pre-restore snapshot was created; automatic rollback is unavailable")"
     elif [[ "${rollback_enabled}" == "true" ]]; then
       should_rollback=1
-      log_warn "$(lang_pick "检测到恢复失败，已根据参数自动执行轻量回滚。" "Restore failure detected. Lightweight rollback will run automatically because the flag is enabled.")"
+      log_warn "$(lang_pick "检测到恢复失败，已根据参数自动执行轻量回滚。" "Restore failure detected. Lightweight rollback will run automatically because the flag is enabled.") $(lang_pick "注意" "Note"): $(_restore_rollback_scope_note)"
     elif [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" && -t 0 ]]; then
-      if confirm "$(lang_pick "检测到恢复失败，是否执行轻量回滚？" "Restore failure detected. Run lightweight rollback?")" "n"; then
+      if confirm "$(lang_pick "检测到恢复失败，是否执行轻量回滚？" "Restore failure detected. Run lightweight rollback?") $(lang_pick "注意" "Note"): $(_restore_rollback_scope_note)" "n"; then
         should_rollback=1
       fi
     fi
 
     if (( should_rollback == 1 )); then
       if _rollback_restore_snapshot "${snapshot_dir}"; then
-        summary_add "warn" "恢复回滚" "$(lang_pick "已执行轻量回滚，请人工复核系统状态" "lightweight rollback completed; please review the system state manually")"
+        summary_add "warn" "恢复回滚" "$(lang_pick "已执行轻量回滚，请人工复核系统状态" "lightweight rollback completed; please review the system state manually"): $(_restore_rollback_scope_note)"
       else
         summary_add "error" "恢复回滚" "$(lang_pick "轻量回滚失败，请手动处理" "lightweight rollback failed; manual intervention required")"
       fi
     else
       if [[ -n "${snapshot_dir}" && -d "${snapshot_dir}" ]]; then
-        summary_add "warn" "恢复回滚" "$(lang_pick "未执行自动回滚，快照保留在" "automatic rollback not executed; snapshot kept at"): ${snapshot_dir}"
+        summary_add "warn" "恢复回滚" "$(lang_pick "未执行自动回滚，配置级快照保留在" "automatic rollback not executed; configuration snapshot kept at"): ${snapshot_dir}"
       fi
     fi
 
@@ -542,7 +554,7 @@ _finalize_restore_result() {
 
   if [[ -d "${snapshot_dir}" ]]; then
     if [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" && -t 0 ]]; then
-      if confirm "$(lang_pick "恢复成功，是否删除本次临时快照？" "Restore succeeded. Delete the temporary snapshot?")" "y"; then
+      if confirm "$(lang_pick "恢复成功，是否删除本次配置级临时快照？" "Restore succeeded. Delete the temporary configuration snapshot?")" "y"; then
         rm -rf "${snapshot_dir}" 2>/dev/null || true
       fi
     fi
