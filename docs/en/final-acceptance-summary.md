@@ -67,6 +67,7 @@ The following sequence has been validated on a genuinely empty target host:
   - risk level
   - blocking items
   - caution items
+- it also supports `doctor --format json` for structured output
 
 ### 3. Remote restore prerequisite checks
 

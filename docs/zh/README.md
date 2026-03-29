@@ -32,6 +32,12 @@ bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env
 - 阻塞项
 - 注意项
 
+如需结构化输出，也可以使用：
+
+```bash
+bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env --format json
+```
+
 ## 三条最短路径
 
 ### 路径 1：我现在只想先备份成功一次

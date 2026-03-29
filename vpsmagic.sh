@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # VPS Magic Backup — 主入口脚本
-# 版本: v1.0.4
+# 版本: v1.0.5
 #
 # 一套面向个人/小团队 VPS 运维的全栈备份与灾难恢复工具。
 # 支持 Docker Compose / 独立容器 / Systemd / 反代 / 数据库 /
@@ -51,6 +51,7 @@ RESTORE_SOURCE_HOSTNAME="${RESTORE_SOURCE_HOSTNAME:-}"
 CLI_BACKUP_DESTINATION=""
 CLI_BACKUP_REMOTE_OVERRIDE=""
 CLI_UI_LANG=""
+CLI_OUTPUT_FORMAT=""
 CLI_RESTORE_ROLLBACK_ON_FAILURE=""
 CLI_RESTORE_SOURCE_HOSTNAME=""
 
@@ -106,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.4               ║
+  ║          VPS Magic Backup  v1.0.5               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -133,6 +134,7 @@ show_help() {
     --dest <mode>     Backup destination mode: local or remote
     --remote <path>   Use a temporary rclone remote path for this run
     --lang <lang>     Interface language: zh or en
+    --format <type>   Output format for supported commands: text or json
     --auto-confirm    Skip interactive confirmation prompts during restore
     --rollback-on-failure
                       Auto-run lightweight rollback if restore fails
@@ -166,6 +168,9 @@ show_help() {
     # Restore on a new VPS (from remote)
     vpsmagic restore
 
+    # Doctor output as JSON
+    vpsmagic doctor --format json
+
     # Restore from a local archive
     vpsmagic restore --local /path/to/backup.tar.gz
 
@@ -187,7 +192,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.4               ║
+  ║          VPS Magic Backup  v1.0.5               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -214,6 +219,7 @@ EOF
     --dest <mode>     备份目标模式: local 或 remote
     --remote <path>   本次执行使用指定 rclone 远端路径
     --lang <lang>     界面语言: zh 或 en
+    --format <type>   支持命令的输出格式: text 或 json
     --auto-confirm    restore 时跳过交互确认
     --rollback-on-failure
                       restore 失败后自动执行轻量回滚
@@ -246,6 +252,9 @@ EOF
 
     # 在新 VPS 上恢复 (从远端)
     vpsmagic restore
+
+    # 以 JSON 输出 doctor 结果
+    vpsmagic doctor --format json
 
     # 从本地文件恢复
     vpsmagic restore --local /path/to/backup.tar.gz
@@ -491,8 +500,50 @@ _doctor_risk_label() {
   esac
 }
 
+_json_escape() {
+  local s="${1-}"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "${s}"
+}
+
+_json_string() {
+  printf '"%s"' "$(_json_escape "${1-}")"
+}
+
+_json_bool() {
+  if [[ "${1:-0}" == "1" || "${1:-false}" == "true" ]]; then
+    printf 'true'
+  else
+    printf 'false'
+  fi
+}
+
+_json_string_array() {
+  local array_name="$1"
+  local out="["
+  local item=""
+  local first=1
+  local items=()
+  eval "items=(\"\${${array_name}[@]}\")"
+  for item in "${items[@]}"; do
+    if (( first == 0 )); then
+      out+=", "
+    fi
+    out+="$( _json_string "${item}" )"
+    first=0
+  done
+  out+="]"
+  printf '%s' "${out}"
+}
+
 run_doctor() {
-  log_banner "$(lang_pick "VPS Magic Backup — 接入识别" "VPS Magic Backup — Adoption Doctor")"
+  if [[ "${CLI_OUTPUT_FORMAT:-text}" != "json" ]]; then
+    log_banner "$(lang_pick "VPS Magic Backup — 接入识别" "VPS Magic Backup — Adoption Doctor")"
+  fi
 
   local compose_count standalone_count systemd_count user_home_count remote_count
   local reverse_proxy db_list has_db profile
@@ -505,9 +556,13 @@ run_doctor() {
   local has_oci_config=0
   local risk_score=1
   local recommendation=""
+  local further_reading_path=""
   local -a configured_restore_targets=()
   local -a blocking_items=()
   local -a caution_items=()
+  local -a grade_labels=()
+  local -a grade_details=()
+  local -a adoption_steps=()
 
   compose_count="$(_doctor_count_compose_projects)"
   standalone_count="$(_doctor_count_standalone_containers)"
@@ -594,6 +649,114 @@ run_doctor() {
     fi
   fi
 
+  (( compose_count > 0 )) && {
+    grade_labels+=("A")
+    grade_details+=("$(lang_pick "Docker Compose: 当前最成熟的自动恢复路径" "Docker Compose: currently the most mature auto-restore path")")
+  }
+  [[ "${reverse_proxy}" != "$(lang_pick "未发现" "none detected")" ]] && {
+    grade_labels+=("A")
+    grade_details+=("$(lang_pick "反向代理: 标准 Caddy/Nginx/Apache 配置恢复较成熟" "Reverse proxy: standard Caddy/Nginx/Apache recovery is mature")")
+  }
+  grade_labels+=("A")
+  grade_details+=("$(lang_pick "Crontab / 防火墙: 常规场景可自动恢复" "Crontab / firewall: common cases can be restored automatically")")
+  (( systemd_count > 0 )) && {
+    grade_labels+=("B")
+    grade_details+=("$(lang_pick "Systemd: 常见服务可恢复，但需要人工确认业务行为" "Systemd: common services can be restored, but business behavior still needs confirmation")")
+  }
+  (( has_db == 1 )) && {
+    grade_labels+=("B")
+    grade_details+=("$(lang_pick "数据库: 可恢复导出与文件，但不承诺业务一致性" "Databases: dumps and files can be restored, but business consistency is not guaranteed")")
+  }
+  (( standalone_count > 0 )) && {
+    grade_labels+=("C")
+    grade_details+=("$(lang_pick "独立容器: 建议视为重建线索，不承诺自动拉起" "Standalone containers: treat them as rebuild hints rather than guaranteed auto-start")")
+  }
+  grade_labels+=("C")
+  grade_details+=("$(lang_pick "业务副作用回滚: 当前不承诺自动处理" "Business-side rollback effects are not automatically handled")")
+
+  if (( has_explicit_remote_config == 1 )); then
+    adoption_steps+=("$(lang_pick "已检测到远端恢复配置，无需重新执行 init" "Remote restore configuration is already present. You do not need to run init again")")
+    if (( has_rclone == 0 )); then
+      adoption_steps+=("$(lang_pick "先安装 rclone，再导入 rclone.conf 或执行 rclone config" "Install rclone first, then import rclone.conf or run rclone config")")
+    elif (( remote_count == 0 )); then
+      adoption_steps+=("$(lang_pick "rclone 已安装，但还没有可用 remote；请导入 rclone.conf 或执行 rclone config" "rclone is installed, but no remotes are available yet; import rclone.conf or run rclone config")")
+    else
+      adoption_steps+=("$(lang_pick "先执行一次远端恢复前置检查，再决定走主远端还是备用远端" "Run one remote restore preflight first, then decide whether to use the primary or fallback remote")")
+    fi
+    if (( requires_oci_credentials == 1 )) && (( has_oci_config == 0 )); then
+      adoption_steps+=("$(lang_pick "如需使用 OCI 主目标，还需准备 /root/.oci/config；否则可回退到其他已配置远端或 restore --local" "If you want to use the OCI primary target, also prepare /root/.oci/config; otherwise use another configured remote or restore --local")")
+      adoption_steps+=("$(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")")
+    else
+      adoption_steps+=("$(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")")
+    fi
+  elif (( remote_count == 0 )); then
+    adoption_steps+=("$(lang_pick "先执行本地模式初始化: vpsmagic init" "Start with local-only init: vpsmagic init")")
+    adoption_steps+=("$(lang_pick "先跑通本地备份 + 本地恢复演练" "First complete local backup + local restore rehearsal")")
+    adoption_steps+=("$(lang_pick "后续再安装 rclone 并配置远端" "Install rclone and configure remote storage later")")
+  else
+    adoption_steps+=("$(lang_pick "仍建议先跑通本地备份 + 本地恢复演练" "Still start with local backup + local restore rehearsal")")
+    adoption_steps+=("$(lang_pick "确认摘要与健康检查合理后，再测试远端备份/恢复" "After summary and health checks look right, test remote backup/restore")")
+  fi
+  if (( standalone_count > 0 || has_db == 1 )); then
+    adoption_steps+=("$(lang_pick "这台机器不是最简单画像，正式上线前必须做恢复演练" "This VPS is not a simple profile; do a restore rehearsal before production use")")
+  fi
+
+  further_reading_path="$(lang_pick "docs/zh/业务画像与适用场景.md" "docs/en/workload-profiles-and-suitability.md")"
+
+  if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${CLI_OUTPUT_FORMAT}" == "json" ]]; then
+    local db_json="null"
+    local grades_json="["
+    local idx=""
+    local -a db_items=()
+    if [[ -n "${db_list}" ]]; then
+      IFS=',' read -r -a db_items <<< "${db_list}"
+      for idx in "${!db_items[@]}"; do
+        db_items[$idx]="$(echo "${db_items[$idx]}" | sed 's/^ *//;s/ *$//')"
+      done
+      db_json="$(_json_string_array db_items)"
+    fi
+    for idx in "${!grade_labels[@]}"; do
+      [[ ${idx} -gt 0 ]] && grades_json+=", "
+      grades_json+="{\"grade\": $(_json_string "${grade_labels[$idx]}"), \"detail\": $(_json_string "${grade_details[$idx]}")}"
+    done
+    grades_json+="]"
+
+    cat <<EOF
+{
+  "command": "doctor",
+  "format": "json",
+  "language": $(_json_string "${UI_LANG:-zh}"),
+  "profile": $(_json_string "${profile}"),
+  "workload": {
+    "docker_compose_projects": ${compose_count},
+    "standalone_docker_containers": ${standalone_count},
+    "custom_systemd_services": ${systemd_count},
+    "reverse_proxy": $(_json_string "${reverse_proxy}"),
+    "databases": ${db_json},
+    "user_home_candidates": ${user_home_count}
+  },
+  "dependencies": {
+    "docker": $(_json_bool "${has_docker}"),
+    "docker_compose": $(_json_bool "${has_docker_compose}"),
+    "rclone": $(_json_bool "${has_rclone}"),
+    "rclone_remote_count": ${remote_count},
+    "oci_credentials": $(_json_bool "${has_oci_config}")
+  },
+  "risk_assessment": {
+    "recommendation": $(_json_string "${recommendation}"),
+    "risk_level": $(_json_string "$(_doctor_risk_label "${risk_score}")"),
+    "risk_score": ${risk_score},
+    "blocking_items": $(_json_string_array blocking_items),
+    "caution_items": $(_json_string_array caution_items)
+  },
+  "recovery_grades": ${grades_json},
+  "recommended_path": $(_json_string_array adoption_steps),
+  "further_reading": $(_json_string "${further_reading_path}")
+}
+EOF
+    return 0
+  fi
+
   echo -e "${_CLR_BOLD}$(lang_pick "机器画像" "Machine profile"):${_CLR_NC}"
   echo "  $(lang_pick "判断结果" "Classification"): ${profile}"
   echo
@@ -658,44 +821,19 @@ run_doctor() {
   echo
 
   echo -e "${_CLR_BOLD}$(lang_pick "恢复等级建议" "Suggested recovery grades"):${_CLR_NC}"
-  (( compose_count > 0 )) && echo "  A  $(lang_pick "Docker Compose: 当前最成熟的自动恢复路径" "Docker Compose: currently the most mature auto-restore path")"
-  [[ "${reverse_proxy}" != "$(lang_pick "未发现" "none detected")" ]] && echo "  A  $(lang_pick "反向代理: 标准 Caddy/Nginx/Apache 配置恢复较成熟" "Reverse proxy: standard Caddy/Nginx/Apache recovery is mature")"
-  echo "  A  $(lang_pick "Crontab / 防火墙: 常规场景可自动恢复" "Crontab / firewall: common cases can be restored automatically")"
-  (( systemd_count > 0 )) && echo "  B  $(lang_pick "Systemd: 常见服务可恢复，但需要人工确认业务行为" "Systemd: common services can be restored, but business behavior still needs confirmation")"
-  (( has_db == 1 )) && echo "  B  $(lang_pick "数据库: 可恢复导出与文件，但不承诺业务一致性" "Databases: dumps and files can be restored, but business consistency is not guaranteed")"
-  (( standalone_count > 0 )) && echo "  C  $(lang_pick "独立容器: 建议视为重建线索，不承诺自动拉起" "Standalone containers: treat them as rebuild hints rather than guaranteed auto-start")"
-  echo "  C  $(lang_pick "业务副作用回滚: 当前不承诺自动处理" "Business-side rollback effects are not automatically handled")"
+  local grade_idx=""
+  for grade_idx in "${!grade_labels[@]}"; do
+    echo "  ${grade_labels[$grade_idx]}  ${grade_details[$grade_idx]}"
+  done
   echo
 
   echo -e "${_CLR_BOLD}$(lang_pick "建议起步路径" "Recommended adoption path"):${_CLR_NC}"
-  if (( has_explicit_remote_config == 1 )); then
-    echo "  1. $(lang_pick "已检测到远端恢复配置，无需重新执行 init" "Remote restore configuration is already present. You do not need to run init again")"
-    if ! command -v rclone >/dev/null 2>&1; then
-      echo "  2. $(lang_pick "先安装 rclone，再导入 rclone.conf 或执行 rclone config" "Install rclone first, then import rclone.conf or run rclone config")"
-    elif (( remote_count == 0 )); then
-      echo "  2. $(lang_pick "rclone 已安装，但还没有可用 remote；请导入 rclone.conf 或执行 rclone config" "rclone is installed, but no remotes are available yet; import rclone.conf or run rclone config")"
-    else
-      echo "  2. $(lang_pick "先执行一次远端恢复前置检查，再决定走主远端还是备用远端" "Run one remote restore preflight first, then decide whether to use the primary or fallback remote")"
-    fi
-    if (( requires_oci_credentials == 1 )) && [[ ! -f /root/.oci/config ]]; then
-      echo "  3. $(lang_pick "如需使用 OCI 主目标，还需准备 /root/.oci/config；否则可回退到其他已配置远端或 restore --local" "If you want to use the OCI primary target, also prepare /root/.oci/config; otherwise use another configured remote or restore --local")"
-      echo "  4. $(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")"
-    else
-      echo "  3. $(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")"
-    fi
-  elif (( remote_count == 0 )); then
-    echo "  1. $(lang_pick "先执行本地模式初始化: vpsmagic init" "Start with local-only init: vpsmagic init")"
-    echo "  2. $(lang_pick "先跑通本地备份 + 本地恢复演练" "First complete local backup + local restore rehearsal")"
-    echo "  3. $(lang_pick "后续再安装 rclone 并配置远端" "Install rclone and configure remote storage later")"
-  else
-    echo "  1. $(lang_pick "仍建议先跑通本地备份 + 本地恢复演练" "Still start with local backup + local restore rehearsal")"
-    echo "  2. $(lang_pick "确认摘要与健康检查合理后，再测试远端备份/恢复" "After summary and health checks look right, test remote backup/restore")"
-  fi
-  if (( standalone_count > 0 || has_db == 1 )); then
-    echo "  4. $(lang_pick "这台机器不是最简单画像，正式上线前必须做恢复演练" "This VPS is not a simple profile; do a restore rehearsal before production use")"
-  fi
+  local step_idx=""
+  for step_idx in "${!adoption_steps[@]}"; do
+    echo "  $((step_idx + 1)). ${adoption_steps[$step_idx]}"
+  done
   echo
-  echo "  $(lang_pick "进一步阅读" "Further reading"): [$(lang_pick "业务画像与适用场景" "Workload profiles and suitability")](${SCRIPT_DIR}/docs/$(lang_pick "zh/业务画像与适用场景.md" "en/workload-profiles-and-suitability.md"))"
+  echo "  $(lang_pick "进一步阅读" "Further reading"): [$(lang_pick "业务画像与适用场景" "Workload profiles and suitability")](${SCRIPT_DIR}/${further_reading_path})"
   echo
 }
 
@@ -1064,6 +1202,9 @@ parse_args() {
             --lang)
               [[ $# -ge 2 ]] || { log_error "$(lang_pick "--lang 需要一个参数" "--lang requires an argument")"; exit 1; }
               CLI_UI_LANG="$2"; set_ui_language "$2"; shift 2 ;;
+            --format)
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--format 需要一个参数" "--format requires an argument")"; exit 1; }
+              CLI_OUTPUT_FORMAT="$2"; shift 2 ;;
             --local)
               # restore --local <path>
               [[ $# -ge 2 ]] || { log_error "$(lang_pick "--local 需要指定备份文件路径" "--local requires a backup file path")"; exit 1; }
@@ -1094,6 +1235,9 @@ parse_args() {
       --lang)
         [[ $# -ge 2 ]] || { log_error "$(lang_pick "--lang 需要一个参数" "--lang requires an argument")"; exit 1; }
         CLI_UI_LANG="$2"; set_ui_language "$2"; shift 2 ;;
+      --format)
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--format 需要一个参数" "--format requires an argument")"; exit 1; }
+        CLI_OUTPUT_FORMAT="$2"; shift 2 ;;
       --version|-v)
         SHOW_VERSION_ONLY=1; shift ;;
       --help|-h)
@@ -1131,6 +1275,11 @@ main() {
     exit 0
   fi
 
+  if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${SUBCOMMAND}" != "doctor" ]]; then
+    log_error "$(lang_pick "--format 当前仅支持 doctor 命令" "--format is currently supported only for the doctor command")"
+    exit 1
+  fi
+
   # 特殊子命令不需要配置
   case "${SUBCOMMAND}" in
     help)
@@ -1142,7 +1291,15 @@ main() {
       exit 0
       ;;
     doctor)
-      load_config "${CONFIG_FILE}"
+      if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${CLI_OUTPUT_FORMAT}" != "text" && "${CLI_OUTPUT_FORMAT}" != "json" ]]; then
+        log_error "$(lang_pick "doctor 仅支持 --format text 或 --format json" "doctor only supports --format text or --format json")"
+        exit 1
+      fi
+      if [[ "${CLI_OUTPUT_FORMAT:-}" == "json" ]]; then
+        load_config "${CONFIG_FILE}" >/dev/null
+      else
+        load_config "${CONFIG_FILE}"
+      fi
       set_ui_language "${CLI_UI_LANG:-${UI_LANG:-}}"
       if [[ -n "${CLI_UI_LANG}" ]]; then
         UI_LANG="${CLI_UI_LANG}"

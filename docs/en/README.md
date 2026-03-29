@@ -22,6 +22,12 @@ The `doctor` command helps answer:
 - which adoption path is safer to start with
 - whether anything is currently blocking a real restore
 
+If you want to feed the result into automation, you can also use:
+
+```bash
+bash vpsmagic.sh doctor --format json
+```
+
 ## Recommended first path
 
 For a brand-new user, the safest order is:

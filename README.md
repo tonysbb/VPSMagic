@@ -44,6 +44,12 @@ bash vpsmagic.sh doctor
 - 应该先从本地备份、本地恢复，还是远端恢复开始
 - 当前是否存在会阻塞正式恢复的条件
 
+如果你想把这些结果交给脚本、CI 或其他自动化工具处理，也可以使用：
+
+```bash
+bash vpsmagic.sh doctor --format json
+```
+
 建议顺序始终是：
 
 1. 先 `doctor`
