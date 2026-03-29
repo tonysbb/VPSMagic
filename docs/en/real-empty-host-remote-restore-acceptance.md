@@ -15,14 +15,14 @@ The purpose is to confirm that the following chain now works:
 
 ## Test Environment
 
-- source host: `NCPDE`
-- target host: `WAWHK`
+- source host: `SOURCE_HOST`
+- target host: `TARGET_HOST`
 - backup source: remote object storage
 - config path: `/opt/vpsmagic/config.env`
 - restore command:
 
 ```bash
-bash vpsmagic.sh restore --config /opt/vpsmagic/config.env --source-hostname NCPDE
+bash vpsmagic.sh restore --config /opt/vpsmagic/config.env --source-hostname SOURCE_HOST
 ```
 
 ## Verified in This Acceptance Pass

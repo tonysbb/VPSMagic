@@ -141,7 +141,7 @@ That means:
 
 ```bash
 RESTORE_ROLLBACK_ON_FAILURE=false
-# RESTORE_SOURCE_HOSTNAME="NCPDE"
+# RESTORE_SOURCE_HOSTNAME="SOURCE_HOST"
 ```
 
 - `RESTORE_ROLLBACK_ON_FAILURE`: only controls whether command-line auto rollback is allowed for lightweight config-level rollback
@@ -159,7 +159,7 @@ Example:
 ```bash
 bash vpsmagic.sh restore \
   --config /opt/vpsmagic/config.env \
-  --source-hostname NCPDE
+  --source-hostname SOURCE_HOST
 ```
 
 If you do not need cross-host restore yet, you can ignore this setting.
