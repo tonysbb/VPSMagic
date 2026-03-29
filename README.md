@@ -98,11 +98,16 @@ bash install.sh
 ### 2. 初始化本地配置
 
 ```bash
-cp config.example.env config.env
-vim config.env
+bash vpsmagic.sh init
 ```
 
-建议先把这两项确认好：
+如果你只是第一次使用，建议在向导里直接选择：
+
+- `仅本地备份（推荐新手）`
+
+向导会先让你选择界面语言，然后生成 `config.env`。
+
+生成后，至少确认这两项：
 
 ```bash
 BACKUP_DESTINATION="local"
