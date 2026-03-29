@@ -572,7 +572,39 @@ run_doctor() {
 }
 
 # ---------- 交互式初始化 ----------
+_init_choose_language() {
+  if [[ -n "${CLI_UI_LANG:-}" ]]; then
+    set_ui_language "${CLI_UI_LANG}"
+    return 0
+  fi
+
+  local current_default
+  current_default="$(normalize_ui_lang "${UI_LANG:-}")"
+  local default_choice="1"
+  [[ "${current_default}" == "en" ]] && default_choice="2"
+
+  echo
+  echo "Choose interface language / 选择界面语言"
+  echo "  1) 中文"
+  echo "  2) English"
+  echo
+
+  local lang_selection=""
+  read -r -p "Select language / 请选择语言 [default: ${default_choice}]: " lang_selection
+  lang_selection="${lang_selection:-${default_choice}}"
+
+  case "${lang_selection}" in
+    2|en|EN|english|English)
+      set_ui_language "en"
+      ;;
+    *)
+      set_ui_language "zh"
+      ;;
+  esac
+}
+
 run_init() {
+  _init_choose_language
   log_banner "$(lang_pick "VPS Magic Backup — 初始化配置" "VPS Magic Backup — Initialize Config")"
 
   local target_config="${VPSMAGIC_HOME}/config.env"

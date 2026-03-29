@@ -6,6 +6,8 @@ If this is your first time using the tool, start with:
 bash vpsmagic.sh init
 ```
 
+The wizard now asks for the interface language first.
+
 The current `init` flow supports three modes:
 
 1. `Local backups only`
