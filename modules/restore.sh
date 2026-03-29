@@ -946,12 +946,19 @@ _list_remote_backup_archives() {
   local remote="$1"
   local out_var="$2"
   local err_var="$3"
+  local rclone_bin=""
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  if [[ -z "${rclone_bin}" ]]; then
+    printf -v "${err_var}" '%s' "$(lang_pick "rclone 未安装" "rclone is not installed")"
+    eval "${out_var}=()"
+    return 1
+  fi
   local output=""
   local rc=0
   local -a collected=()
   local fname=""
 
-  output="$(rclone lsf "${remote}/" --files-only 2>&1)" || rc=$?
+  output="$("${rclone_bin}" lsf "${remote}/" --files-only 2>&1)" || rc=$?
   if (( rc != 0 )); then
     printf -v "${err_var}" '%s' "$(printf '%s\n' "${output}" | head -1)"
     eval "${out_var}=()"
@@ -997,10 +1004,13 @@ _read_remote_archive_checksum() {
   local remote_archive="$1"
   local out_var="$2"
   shift 2
+  local rclone_bin=""
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  [[ -n "${rclone_bin}" ]] || return 1
   local output=""
   local checksum=""
 
-  output="$(rclone cat "${remote_archive}.sha256" "$@" 2>/dev/null | head -1)" || true
+  output="$("${rclone_bin}" cat "${remote_archive}.sha256" "$@" 2>/dev/null | head -1)" || true
   checksum="$(awk '{print $1}' <<< "${output}")"
   if [[ "${checksum}" =~ ^[A-Fa-f0-9]{64}$ ]]; then
     checksum="${checksum,,}"
@@ -1019,11 +1029,14 @@ _extract_rclone_remote_name() {
 _rclone_remote_exists() {
   local remote_name="$1"
   shift
+  local rclone_bin=""
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  [[ -n "${rclone_bin}" ]] || return 1
   local line=""
   while IFS= read -r line; do
     [[ -n "${line}" ]] || continue
     [[ "${line%:}" == "${remote_name}" ]] && return 0
-  done < <(rclone "$@" listremotes 2>/dev/null || true)
+  done < <("${rclone_bin}" "$@" listremotes 2>/dev/null || true)
   return 1
 }
 
@@ -1060,8 +1073,13 @@ _preflight_restore_remote_target() {
   fi
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
     local extra_hint=""
+    local rclone_bin=""
+    rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
     if [[ -n "${_RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR:-}" ]]; then
       extra_hint="$(lang_pick "；官方安装尝试失败" "; official install attempt failed"): ${_RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR}"
+    fi
+    if [[ -n "${rclone_bin}" ]]; then
+      extra_hint="${extra_hint}$(lang_pick "；当前使用" "; currently using"): ${rclone_bin}"
     fi
     printf -v "${err_var}" '%s' "$(lang_pick "当前 rclone 不支持该远端 backend" "the current rclone build does not support this remote backend"): ${remote_name} (type=${backend_type})${extra_hint}$(lang_pick "。请安装支持该 backend 的 rclone，或改用其他远端 / restore --local。" ". Install an rclone build that supports this backend, or use another remote / restore --local.")"
     return 1

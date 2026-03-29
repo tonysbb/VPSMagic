@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.13              ║
+  ║          VPS Magic Backup  v1.0.14              ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.13              ║
+  ║          VPS Magic Backup  v1.0.14              ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -710,6 +710,7 @@ run_doctor() {
   local has_docker=0
   local has_docker_compose=0
   local has_rclone=0
+  local rclone_bin=""
   local has_oci_config=0
   local has_oci_backend_support=1
   local risk_score=1
@@ -736,9 +737,10 @@ run_doctor() {
   command -v docker >/dev/null 2>&1 && has_docker=1
   _doctor_has_docker_compose && has_docker_compose=1
   [[ -f /root/.oci/config ]] && has_oci_config=1
-  if command -v rclone >/dev/null 2>&1; then
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  if [[ -n "${rclone_bin}" ]]; then
     has_rclone=1
-    remote_count="$(rclone listremotes 2>/dev/null | wc -l | tr -d ' ')"
+    remote_count="$("${rclone_bin}" listremotes 2>/dev/null | wc -l | tr -d ' ')"
   fi
   if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" || -n "${BACKUP_TARGETS:-}" || -n "${RCLONE_REMOTE:-}" || -n "${BACKUP_PRIMARY_TARGET:-}" || -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
     has_explicit_remote_config=1

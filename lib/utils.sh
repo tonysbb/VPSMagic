@@ -255,6 +255,20 @@ get_primary_ip() {
 }
 
 # ---------- rclone 工具 ----------
+vpsmagic_rclone_bin() {
+  if [[ -x /usr/local/bin/rclone ]]; then
+    printf '%s\n' "/usr/local/bin/rclone"
+    return 0
+  fi
+
+  if command -v rclone >/dev/null 2>&1; then
+    command -v rclone
+    return 0
+  fi
+
+  return 1
+}
+
 vpsmagic_extract_rclone_remote_name() {
   local remote_target="$1"
   printf '%s\n' "${remote_target%%:*}"
@@ -265,10 +279,12 @@ vpsmagic_rclone_remote_backend_type() {
   shift
 
   [[ -n "${remote_name}" ]] || return 1
-  command -v rclone >/dev/null 2>&1 || return 1
+  local rclone_bin=""
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  [[ -n "${rclone_bin}" ]] || return 1
 
   local remote_cfg=""
-  remote_cfg="$(rclone "$@" config show "${remote_name}" 2>/dev/null || true)"
+  remote_cfg="$("${rclone_bin}" "$@" config show "${remote_name}" 2>/dev/null || true)"
   awk -F '=' '
     /^[[:space:]]*type[[:space:]]*=/ {
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
@@ -295,9 +311,11 @@ vpsmagic_rclone_backend_supported() {
   shift
 
   [[ -n "${backend}" ]] || return 1
-  command -v rclone >/dev/null 2>&1 || return 1
+  local rclone_bin=""
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  [[ -n "${rclone_bin}" ]] || return 1
 
-  rclone "$@" help backends 2>/dev/null | awk '{print $1}' | grep -Fxq "${backend}"
+  "${rclone_bin}" "$@" help backends 2>/dev/null | awk '{print $1}' | grep -Fxq "${backend}"
 }
 
 vpsmagic_remote_uses_oci_credentials() {
