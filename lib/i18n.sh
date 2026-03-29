@@ -115,6 +115,16 @@ summary_module_name() {
     "恢复 Crontab") lang_pick "恢复 Crontab" "Restore crontab" ;;
     "恢复防火墙") lang_pick "恢复防火墙" "Restore firewall" ;;
     "恢复用户目录") lang_pick "恢复用户目录" "Restore user homes" ;;
+    "恢复 SSH 访问") lang_pick "恢复 SSH 访问" "Restore SSH access" ;;
+    "恢复总体状态") lang_pick "恢复总体状态" "Restore overall status" ;;
+    "恢复回滚") lang_pick "恢复回滚" "Restore rollback" ;;
+    "健康检查 / Docker Compose") lang_pick "健康检查 / Docker Compose" "Health check / Docker Compose" ;;
+    "健康检查 / Compose 端口") lang_pick "健康检查 / Compose 端口" "Health check / Compose ports" ;;
+    "健康检查 / Compose 出网") lang_pick "健康检查 / Compose 出网" "Health check / Compose egress" ;;
+    "健康检查 / Systemd") lang_pick "健康检查 / Systemd" "Health check / Systemd" ;;
+    "健康检查 / 反向代理") lang_pick "健康检查 / 反向代理" "Health check / Reverse proxy" ;;
+    "健康检查 / 代理端口") lang_pick "健康检查 / 代理端口" "Health check / Proxy ports" ;;
+    "健康检查 / rclone") lang_pick "健康检查 / rclone" "Health check / rclone" ;;
     *)
       printf '%s' "${1:-}"
       ;;
@@ -160,6 +170,12 @@ summary_detail_text() {
         printf '%s services' "${BASH_REMATCH[1]}"
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个容器$ ]]; then
         printf '%s containers' "${BASH_REMATCH[1]}"
+      elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已恢复，([0-9]+)[[:space:]]*个待切换后启动$ ]]; then
+        printf '%s services restored, %s pending manual start after cutover' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+      elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已处理，([0-9]+)[[:space:]]*个需手动检查$ ]]; then
+        printf '%s services processed, %s require manual review' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+      elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已恢复$ ]]; then
+        printf '%s services restored' "${BASH_REMATCH[1]}"
       else
         printf '%s' "${detail}"
       fi
