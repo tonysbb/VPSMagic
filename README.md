@@ -200,6 +200,7 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 English docs:
 
 - [English docs overview](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/README.md)
+- [Real empty-host remote restore acceptance](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/real-empty-host-remote-restore-acceptance.md)
 
 ## 当前已落地能力
 

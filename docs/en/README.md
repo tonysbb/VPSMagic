@@ -79,6 +79,8 @@ More English task-by-task documentation can be added under `docs/en/` as the use
   - [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
 - If you want the workload suitability view first:
   - [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
+- If you want one validated example of a real empty target host restore:
+  - [Real Empty-Host Remote Restore Acceptance](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/real-empty-host-remote-restore-acceptance.md)
 - If you plan to use migration or scheduled backups:
   - [Migration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/migrate.md)
   - [Scheduled Backups](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/schedule.md)
@@ -95,4 +97,5 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 4. [Backup](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/backup.md)
 5. [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
 6. [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
-7. [Capability Matrix](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/capability-matrix.md)
+7. [Real Empty-Host Remote Restore Acceptance](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/real-empty-host-remote-restore-acceptance.md)
+8. [Capability Matrix](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/capability-matrix.md)
