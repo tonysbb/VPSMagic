@@ -272,7 +272,7 @@ _ensure_rclone_installed() {
     return 0
   fi
 
-  if _install_rclone_via_official_script; then
+  if _install_rclone_via_official_release; then
     return 0
   fi
 
@@ -304,7 +304,35 @@ _ensure_rclone_installed() {
   command -v rclone >/dev/null 2>&1
 }
 
-_install_rclone_via_official_script() {
+_rclone_release_arch() {
+  case "$(uname -m 2>/dev/null || echo unknown)" in
+    x86_64|amd64) printf '%s\n' "amd64" ;;
+    aarch64|arm64) printf '%s\n' "arm64" ;;
+    armv7l|armv7) printf '%s\n' "arm-v7" ;;
+    armv6l|armv6) printf '%s\n' "arm-v6" ;;
+    i386|i686) printf '%s\n' "386" ;;
+    *) return 1 ;;
+  esac
+}
+
+_extract_rclone_release_zip() {
+  local archive="$1"
+  local target_dir="$2"
+
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -q "${archive}" -d "${target_dir}" >/dev/null 2>&1
+    return $?
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -m zipfile -e "${archive}" "${target_dir}" >/dev/null 2>&1
+    return $?
+  fi
+
+  return 1
+}
+
+_install_rclone_via_official_release() {
   if (( _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED == 1 )); then
     command -v rclone >/dev/null 2>&1
     return $?
@@ -321,28 +349,49 @@ _install_rclone_via_official_script() {
     return 1
   fi
 
-  local installer=""
-  installer="$(mktemp /tmp/vpsmagic-rclone-install.XXXXXX 2>/dev/null || true)"
-  if [[ -z "${installer}" ]]; then
-    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "无法创建临时安装脚本文件" "failed to create a temporary installer file")"
+  local arch=""
+  arch="$(_rclone_release_arch 2>/dev/null || true)"
+  if [[ -z "${arch}" ]]; then
+    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "当前架构暂不支持自动安装官方 rclone release" "automatic install for the current architecture is not supported yet")"
     return 1
   fi
 
-  log_info "  $(lang_pick "尝试通过 rclone 官方安装脚本安装/升级 rclone..." "Attempting to install/upgrade rclone via the official installer...")"
-  local install_output=""
-  if install_output="$(curl -fsSL https://rclone.org/install.sh -o "${installer}" 2>&1 && bash "${installer}" 2>&1)"; then
-    rm -f "${installer}" >/dev/null 2>&1 || true
+  local temp_dir=""
+  temp_dir="$(mktemp -d /tmp/vpsmagic-rclone-release.XXXXXX 2>/dev/null || true)"
+  if [[ -z "${temp_dir}" ]]; then
+    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "无法创建临时安装目录" "failed to create a temporary install directory")"
+    return 1
+  fi
+
+  local archive="${temp_dir}/rclone.zip"
+  local download_url="https://downloads.rclone.org/rclone-current-linux-${arch}.zip"
+  log_info "  $(lang_pick "尝试强制安装官方 rclone release..." "Attempting to force-install the official rclone release...")"
+
+  if curl -fsSL "${download_url}" -o "${archive}" >/dev/null 2>&1 \
+    && _extract_rclone_release_zip "${archive}" "${temp_dir}"; then
+    local extracted_bin=""
+    extracted_bin="$(find "${temp_dir}" -type f -name rclone 2>/dev/null | head -1)"
+    if [[ -z "${extracted_bin}" ]]; then
+      _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "官方 release 已下载，但未找到 rclone 可执行文件" "the official release was downloaded, but no rclone executable was found")"
+      rm -rf "${temp_dir}" >/dev/null 2>&1 || true
+      return 1
+    fi
+    install -m 0755 "${extracted_bin}" /usr/local/bin/rclone >/dev/null 2>&1 || {
+      _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "无法将官方 rclone 安装到 /usr/local/bin/rclone" "failed to install the official rclone to /usr/local/bin/rclone")"
+      rm -rf "${temp_dir}" >/dev/null 2>&1 || true
+      return 1
+    }
+    rm -rf "${temp_dir}" >/dev/null 2>&1 || true
     hash -r >/dev/null 2>&1 || true
     if ! command -v rclone >/dev/null 2>&1; then
-      _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "官方安装脚本执行成功，但 rclone 仍不可用" "the official installer completed, but rclone is still unavailable")"
+      _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "官方 release 已安装，但 rclone 仍不可用" "the official release was installed, but rclone is still unavailable")"
       return 1
     fi
     return 0
   fi
 
-  install_output="$(printf '%s' "${install_output}" | tail -n 3 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g;s/^ //;s/ $//')"
-  _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="${install_output:-$(lang_pick "官方安装脚本执行失败" "the official installer failed")}"
-  rm -f "${installer}" >/dev/null 2>&1 || true
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "官方下载或解压失败" "failed to download or extract the official release")"
+  rm -rf "${temp_dir}" >/dev/null 2>&1 || true
   return 1
 }
 
@@ -1006,7 +1055,7 @@ _preflight_restore_remote_target() {
   local backend_type=""
   backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
-    _install_rclone_via_official_script || true
+    _install_rclone_via_official_release || true
     backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
   fi
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then

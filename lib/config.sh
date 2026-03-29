@@ -7,7 +7,7 @@
 _VPSMAGIC_CONFIG_LOADED=1
 
 # ---------- 默认值 ----------
-VPSMAGIC_VERSION="1.0.12"
+VPSMAGIC_VERSION="1.0.13"
 VPSMAGIC_HOME="${VPSMAGIC_HOME:-/opt/vpsmagic}"
 
 # 备份
