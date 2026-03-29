@@ -1014,6 +1014,12 @@ main() {
       exit 0
       ;;
     doctor)
+      load_config "${CONFIG_FILE}"
+      set_ui_language "${CLI_UI_LANG:-${UI_LANG:-}}"
+      if [[ -n "${CLI_UI_LANG}" ]]; then
+        UI_LANG="${CLI_UI_LANG}"
+        set_ui_language "${UI_LANG}"
+      fi
       run_doctor
       exit 0
       ;;
