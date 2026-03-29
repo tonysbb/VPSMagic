@@ -61,7 +61,7 @@ In practice:
 
 - Root overview: [README.md](/Users/terry/Project/Codex/VPSMagicBackup/README.md)
 - Chinese user docs: [docs/zh/README.md](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/README.md)
-- Workload profiles: [docs/zh/业务画像与适用场景.md](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
+- Workload profiles: [docs/en/workload-profiles-and-suitability.md](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
 
 More English task-by-task documentation can be added under `docs/en/` as the user guides are translated.
 
@@ -82,3 +82,4 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 2. [Quick Start](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/quickstart.md)
 3. [Configuration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/configuration.md)
 4. [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
+5. [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)

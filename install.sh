@@ -276,11 +276,9 @@ main() {
   echo
   echo -e "${BOLD}${CYAN}"
   echo "  ╔══════════════════════════════════════════════════╗"
-  if is_install_lang_en; then
-    echo "  ║      VPS Magic Backup — Installation Wizard     ║"
-  else
-    echo "  ║          VPS Magic Backup — 安装向导             ║"
-  fi
+  local install_title
+  install_title="$(lang_pick_install "VPS Magic Backup — 安装向导" "VPS Magic Backup — Installation Wizard")"
+  printf '  ║%50s║\n' "${install_title}"
   echo "  ╚══════════════════════════════════════════════════╝"
   echo -e "${NC}"
 
@@ -403,11 +401,9 @@ EOF
   echo
   echo -e "${GREEN}${BOLD}"
   echo "  ╔══════════════════════════════════════════════════╗"
-  if is_install_lang_en; then
-    echo "  ║            Installation Complete!               ║"
-  else
-    echo "  ║              安装完成! 🎉                       ║"
-  fi
+  local completion_title
+  completion_title="$(lang_pick_install "安装完成! 🎉" "Installation Complete!")"
+  printf '  ║%50s║\n' "${completion_title}"
   echo "  ╚══════════════════════════════════════════════════╝"
   echo -e "${NC}"
   echo

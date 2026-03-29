@@ -201,8 +201,8 @@ collect_docker_compose() {
     # 记录项目目录及子目录的权限/属主信息 (恢复时关键，如 aria2 temp 需要 65534:65534)
     local perms_file="${proj_backup}/_permissions.txt"
     {
-      echo "# 项目目录权限快照 (恢复时用于修复属主和权限)"
-      echo "# 格式: 权限 属主:属组 路径"
+      echo "# $(lang_pick "项目目录权限快照 (恢复时用于修复属主和权限)" "Project directory permission snapshot (used to restore owner and mode)")"
+      echo "# $(lang_pick "格式: 权限 属主:属组 路径" "Format: mode owner:group path")"
       while IFS= read -r snap_path; do
         local perms owner_group
         perms="$(get_file_mode "${snap_path}")"

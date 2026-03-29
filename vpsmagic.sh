@@ -567,7 +567,7 @@ run_doctor() {
     echo "  4. $(lang_pick "这台机器不是最简单画像，正式上线前必须做恢复演练" "This VPS is not a simple profile; do a restore rehearsal before production use")"
   fi
   echo
-  echo "  $(lang_pick "进一步阅读" "Further reading"): [docs/zh/业务画像与适用场景.md](${SCRIPT_DIR}/docs/zh/业务画像与适用场景.md)"
+  echo "  $(lang_pick "进一步阅读" "Further reading"): [$(lang_pick "业务画像与适用场景" "Workload profiles and suitability")](${SCRIPT_DIR}/docs/$(lang_pick "zh/业务画像与适用场景.md" "en/workload-profiles-and-suitability.md"))"
   echo
 }
 
