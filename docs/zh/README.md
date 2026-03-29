@@ -15,6 +15,7 @@
 - 你准备配置云端远端：看 [配置说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/配置说明.md)
 - 你准备在新机恢复：看 [恢复说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/恢复说明.md)
 - 你遇到了错误或恢复结果不符合预期：看 [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
+- 你不确定自己的 VPS 属于哪一类：看 [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 
 ## 三条最短路径
 
@@ -24,6 +25,7 @@
 
 1. [零配置起步](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/零配置起步.md)
 2. [恢复说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/恢复说明.md)
+3. [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 
 ### 路径 2：我已经要开始正式使用
 
@@ -53,6 +55,7 @@
 8. [定时任务说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/定时任务说明.md)
 9. [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 10. [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
+11. [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 
 ## 第一次使用时你可以先不关心
 

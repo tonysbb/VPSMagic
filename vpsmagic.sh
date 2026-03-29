@@ -14,6 +14,7 @@
 #   vpsmagic restore  [--dry-run] [--config path]
 #   vpsmagic schedule [install|remove|status]
 #   vpsmagic status
+#   vpsmagic doctor
 #   vpsmagic init
 #   vpsmagic help | --help | -h
 #   vpsmagic --version | -v
@@ -122,6 +123,7 @@ show_help() {
       remove          Remove cron job
       status          Show scheduler status
     status          Show system, config, and backup overview
+    doctor          Classify this VPS and suggest a safe adoption path
     init            Create config interactively
     help            Show this help
 
@@ -202,6 +204,7 @@ EOF
       remove          移除 cron 定时任务
       status          查看调度状态
     status          查看系统与备份状态概览
+    doctor          识别当前 VPS 画像并给出接入建议
     init            交互式初始化配置文件
     help            显示此帮助信息
 
@@ -355,6 +358,216 @@ show_status() {
   else
     echo -e "  📅 $(lang_pick "定时备份" "Scheduled backup"): ${_CLR_DIM}$(install_status_label 0)${_CLR_NC}"
   fi
+  echo
+}
+
+# ---------- 接入识别 ----------
+_doctor_has_docker_compose() {
+  command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
+_doctor_count_compose_projects() {
+  local seen="" sdir compose_file dir
+
+  if _doctor_has_docker_compose; then
+    local compose_ls_json=""
+    compose_ls_json="$(docker compose ls --format json 2>/dev/null || true)"
+    if [[ -n "${compose_ls_json}" ]]; then
+      while IFS= read -r dir; do
+        [[ -z "${dir}" ]] && continue
+        if [[ "${seen}" != *$'\n'"${dir}"$'\n'* ]]; then
+          seen+=$'\n'"${dir}"$'\n'
+        fi
+      done < <(printf '%s' "${compose_ls_json}" | grep -o '"ConfigFiles":"[^"]*"' | sed -E 's/^"ConfigFiles":"//; s/"$//' | tr ',' '\n' | xargs -I{} dirname "{}" 2>/dev/null || true)
+    fi
+  fi
+
+  for sdir in /opt /srv /root /home; do
+    [[ -d "${sdir}" ]] || continue
+    while IFS= read -r compose_file; do
+      [[ -z "${compose_file}" ]] && continue
+      dir="$(dirname "${compose_file}")"
+      if [[ "${seen}" != *$'\n'"${dir}"$'\n'* ]]; then
+        seen+=$'\n'"${dir}"$'\n'
+      fi
+    done < <(find "${sdir}" -maxdepth 4 \( -name "docker-compose.yml" -o -name "docker-compose.yaml" -o -name "compose.yml" -o -name "compose.yaml" \) 2>/dev/null || true)
+  done
+
+  printf '%s' "${seen}" | sed '/^$/d' | wc -l | tr -d ' '
+}
+
+_doctor_count_standalone_containers() {
+  local count=0 cid label
+  command -v docker >/dev/null 2>&1 || { echo "0"; return; }
+
+  while IFS= read -r cid; do
+    [[ -z "${cid}" ]] && continue
+    label="$(docker inspect "${cid}" --format '{{ index .Config.Labels "com.docker.compose.project" }}' 2>/dev/null || true)"
+    [[ -n "${label}" ]] && continue
+    count=$((count + 1))
+  done < <(docker ps -aq 2>/dev/null || true)
+
+  echo "${count}"
+}
+
+_doctor_count_custom_systemd_services() {
+  local count=0 svc_name
+  [[ -d /etc/systemd/system ]] || { echo "0"; return; }
+
+  while IFS= read -r svc_name; do
+    [[ -z "${svc_name}" ]] && continue
+    if [[ "${svc_name}" =~ ^(dbus|ssh|sshd|rsyslog|cron|systemd-|getty|network|snap|cloud-|plymouth-|chrony|ufw) ]]; then
+      continue
+    fi
+    count=$((count + 1))
+  done < <(find /etc/systemd/system -maxdepth 1 -name "*.service" -type f 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.service$//' || true)
+
+  echo "${count}"
+}
+
+_doctor_detect_reverse_proxy() {
+  local found=()
+  [[ -d /etc/caddy ]] && found+=("Caddy")
+  [[ -d /etc/nginx ]] && found+=("Nginx")
+  [[ -d /etc/apache2 ]] && found+=("Apache")
+  if [[ ${#found[@]} -eq 0 ]]; then
+    echo "$(lang_pick "未发现" "none detected")"
+  else
+    local IFS=", "
+    echo "${found[*]}"
+  fi
+}
+
+_doctor_detect_databases() {
+  local found=()
+  if [[ -d /etc/mysql || -d /var/lib/mysql ]]; then
+    found+=("MySQL")
+  fi
+  if [[ -d /etc/postgresql || -d /var/lib/postgresql ]]; then
+    found+=("PostgreSQL")
+  fi
+  if find /opt /srv /var/www /root -maxdepth 4 \( -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \) -type f 2>/dev/null | head -n 1 | grep -q .; then
+    found+=("SQLite")
+  fi
+  if [[ ${#found[@]} -eq 0 ]]; then
+    echo ""
+  else
+    local IFS=", "
+    echo "${found[*]}"
+  fi
+}
+
+_doctor_count_user_home_candidates() {
+  local count
+  count="$(find /home -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+  [[ -d /root ]] && count=$((count + 1))
+  echo "${count}"
+}
+
+_doctor_detect_profile() {
+  local compose_count="${1:-0}"
+  local standalone_count="${2:-0}"
+  local systemd_count="${3:-0}"
+  local has_db="${4:-0}"
+
+  if (( compose_count > 0 && standalone_count == 0 && has_db == 0 )); then
+    echo "$(lang_pick "标准 Compose 应用型" "Standard Compose app VPS")"
+  elif (( compose_count > 0 && has_db == 1 )); then
+    echo "$(lang_pick "带数据库的 Compose 应用型" "Compose app VPS with databases")"
+  elif (( standalone_count > 0 )); then
+    echo "$(lang_pick "混合 Docker 业务型" "Mixed Docker workload VPS")"
+  elif (( systemd_count > 0 )); then
+    echo "$(lang_pick "Systemd 服务型" "Systemd service VPS")"
+  else
+    echo "$(lang_pick "轻量通用 VPS" "Lightweight general-purpose VPS")"
+  fi
+}
+
+run_doctor() {
+  log_banner "$(lang_pick "VPS Magic Backup — 接入识别" "VPS Magic Backup — Adoption Doctor")"
+
+  local compose_count standalone_count systemd_count user_home_count remote_count
+  local reverse_proxy db_list has_db profile
+
+  compose_count="$(_doctor_count_compose_projects)"
+  standalone_count="$(_doctor_count_standalone_containers)"
+  systemd_count="$(_doctor_count_custom_systemd_services)"
+  user_home_count="$(_doctor_count_user_home_candidates)"
+  reverse_proxy="$(_doctor_detect_reverse_proxy)"
+  db_list="$(_doctor_detect_databases)"
+  has_db=0
+  [[ -n "${db_list}" ]] && has_db=1
+  profile="$(_doctor_detect_profile "${compose_count}" "${standalone_count}" "${systemd_count}" "${has_db}")"
+
+  remote_count=0
+  if command -v rclone >/dev/null 2>&1; then
+    remote_count="$(rclone listremotes 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+
+  echo -e "${_CLR_BOLD}$(lang_pick "机器画像" "Machine profile"):${_CLR_NC}"
+  echo "  $(lang_pick "判断结果" "Classification"): ${profile}"
+  echo
+
+  echo -e "${_CLR_BOLD}$(lang_pick "发现的业务形态" "Detected workload shape"):${_CLR_NC}"
+  echo "  $(lang_pick "Docker Compose 项目" "Docker Compose projects"): ${compose_count}"
+  echo "  $(lang_pick "独立 Docker 容器" "Standalone Docker containers"): ${standalone_count}"
+  echo "  $(lang_pick "自定义 Systemd 服务" "Custom Systemd services"): ${systemd_count}"
+  echo "  $(lang_pick "反向代理" "Reverse proxy"): ${reverse_proxy}"
+  if [[ -n "${db_list}" ]]; then
+    echo "  $(lang_pick "数据库" "Databases"): ${db_list}"
+  else
+    echo "  $(lang_pick "数据库" "Databases"): $(lang_pick "未发现" "none detected")"
+  fi
+  echo "  $(lang_pick "用户目录候选" "User home candidates"): ${user_home_count}"
+  echo
+
+  echo -e "${_CLR_BOLD}$(lang_pick "依赖与远端条件" "Dependencies and remote readiness"):${_CLR_NC}"
+  if command -v docker >/dev/null 2>&1; then
+    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} Docker"
+  else
+    echo -e "  ${_CLR_DIM}✗ Docker${_CLR_NC}"
+  fi
+  if _doctor_has_docker_compose; then
+    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} Docker Compose"
+  else
+    echo -e "  ${_CLR_DIM}✗ Docker Compose${_CLR_NC}"
+  fi
+  if command -v rclone >/dev/null 2>&1; then
+    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} rclone (${remote_count} $(lang_pick "个 remote" "remotes"))"
+  else
+    echo -e "  ${_CLR_DIM}✗ rclone${_CLR_NC}"
+  fi
+  if [[ -f /root/.oci/config ]]; then
+    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} OCI credentials"
+  else
+    echo -e "  ${_CLR_DIM}✗ OCI credentials${_CLR_NC}"
+  fi
+  echo
+
+  echo -e "${_CLR_BOLD}$(lang_pick "恢复等级建议" "Suggested recovery grades"):${_CLR_NC}"
+  (( compose_count > 0 )) && echo "  A  $(lang_pick "Docker Compose: 当前最成熟的自动恢复路径" "Docker Compose: currently the most mature auto-restore path")"
+  [[ "${reverse_proxy}" != "$(lang_pick "未发现" "none detected")" ]] && echo "  A  $(lang_pick "反向代理: 标准 Caddy/Nginx/Apache 配置恢复较成熟" "Reverse proxy: standard Caddy/Nginx/Apache recovery is mature")"
+  echo "  A  $(lang_pick "Crontab / 防火墙: 常规场景可自动恢复" "Crontab / firewall: common cases can be restored automatically")"
+  (( systemd_count > 0 )) && echo "  B  $(lang_pick "Systemd: 常见服务可恢复，但需要人工确认业务行为" "Systemd: common services can be restored, but business behavior still needs confirmation")"
+  (( has_db == 1 )) && echo "  B  $(lang_pick "数据库: 可恢复导出与文件，但不承诺业务一致性" "Databases: dumps and files can be restored, but business consistency is not guaranteed")"
+  (( standalone_count > 0 )) && echo "  C  $(lang_pick "独立容器: 建议视为重建线索，不承诺自动拉起" "Standalone containers: treat them as rebuild hints rather than guaranteed auto-start")"
+  echo "  C  $(lang_pick "业务副作用回滚: 当前不承诺自动处理" "Business-side rollback effects are not automatically handled")"
+  echo
+
+  echo -e "${_CLR_BOLD}$(lang_pick "建议起步路径" "Recommended adoption path"):${_CLR_NC}"
+  if (( remote_count == 0 )); then
+    echo "  1. $(lang_pick "先执行本地模式初始化: vpsmagic init" "Start with local-only init: vpsmagic init")"
+    echo "  2. $(lang_pick "先跑通本地备份 + 本地恢复演练" "First complete local backup + local restore rehearsal")"
+    echo "  3. $(lang_pick "后续再安装 rclone 并配置远端" "Install rclone and configure remote storage later")"
+  else
+    echo "  1. $(lang_pick "仍建议先跑通本地备份 + 本地恢复演练" "Still start with local backup + local restore rehearsal")"
+    echo "  2. $(lang_pick "确认摘要与健康检查合理后，再测试远端备份/恢复" "After summary and health checks look right, test remote backup/restore")"
+  fi
+  if (( standalone_count > 0 || has_db == 1 )); then
+    echo "  4. $(lang_pick "这台机器不是最简单画像，正式上线前必须做恢复演练" "This VPS is not a simple profile; do a restore rehearsal before production use")"
+  fi
+  echo
+  echo "  $(lang_pick "进一步阅读" "Further reading"): [docs/zh/业务画像与适用场景.md](${SCRIPT_DIR}/docs/zh/业务画像与适用场景.md)"
   echo
 }
 
@@ -671,7 +884,7 @@ EOF
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      backup|upload|restore|schedule|status|init|help|migrate)
+      backup|upload|restore|schedule|status|doctor|init|help|migrate)
         SUBCOMMAND="$1"
         shift
         # 收集子命令参数
@@ -768,6 +981,10 @@ main() {
       run_init
       exit 0
       ;;
+    doctor)
+      run_doctor
+      exit 0
+      ;;
   esac
 
   # 加载配置
@@ -833,6 +1050,9 @@ main() {
       ;;
     status)
       show_status
+      ;;
+    doctor)
+      run_doctor
       ;;
     *)
       log_error "未知命令: ${SUBCOMMAND}"
