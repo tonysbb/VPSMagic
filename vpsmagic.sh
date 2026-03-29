@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # VPS Magic Backup — 主入口脚本
-# 版本: v1.0.3
+# 版本: v1.0.4
 #
 # 一套面向个人/小团队 VPS 运维的全栈备份与灾难恢复工具。
 # 支持 Docker Compose / 独立容器 / Systemd / 反代 / 数据库 /
@@ -106,7 +106,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.3               ║
+  ║          VPS Magic Backup  v1.0.4               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -187,7 +187,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.3               ║
+  ║          VPS Magic Backup  v1.0.4               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -483,6 +483,14 @@ _doctor_detect_profile() {
   fi
 }
 
+_doctor_risk_label() {
+  case "${1:-1}" in
+    3) echo "$(lang_pick "高" "High")" ;;
+    2) echo "$(lang_pick "中" "Medium")" ;;
+    *) echo "$(lang_pick "低" "Low")" ;;
+  esac
+}
+
 run_doctor() {
   log_banner "$(lang_pick "VPS Magic Backup — 接入识别" "VPS Magic Backup — Adoption Doctor")"
 
@@ -490,7 +498,16 @@ run_doctor() {
   local reverse_proxy db_list has_db profile
   local has_explicit_remote_config=0
   local requires_oci_credentials=0
+  local has_non_oci_target=0
+  local has_docker=0
+  local has_docker_compose=0
+  local has_rclone=0
+  local has_oci_config=0
+  local risk_score=1
+  local recommendation=""
   local -a configured_restore_targets=()
+  local -a blocking_items=()
+  local -a caution_items=()
 
   compose_count="$(_doctor_count_compose_projects)"
   standalone_count="$(_doctor_count_standalone_containers)"
@@ -503,7 +520,11 @@ run_doctor() {
   profile="$(_doctor_detect_profile "${compose_count}" "${standalone_count}" "${systemd_count}" "${has_db}")"
 
   remote_count=0
+  command -v docker >/dev/null 2>&1 && has_docker=1
+  _doctor_has_docker_compose && has_docker_compose=1
+  [[ -f /root/.oci/config ]] && has_oci_config=1
   if command -v rclone >/dev/null 2>&1; then
+    has_rclone=1
     remote_count="$(rclone listremotes 2>/dev/null | wc -l | tr -d ' ')"
   fi
   if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" || -n "${BACKUP_TARGETS:-}" || -n "${RCLONE_REMOTE:-}" || -n "${BACKUP_PRIMARY_TARGET:-}" || -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
@@ -513,9 +534,64 @@ run_doctor() {
     for configured_target in "${configured_restore_targets[@]}"; do
       if [[ "${configured_target}" == OOS:* || "${configured_target}" == oos:* ]]; then
         requires_oci_credentials=1
-        break
+      else
+        has_non_oci_target=1
       fi
     done
+  fi
+
+  if (( has_explicit_remote_config == 1 )); then
+    if (( has_rclone == 0 )); then
+      blocking_items+=("$(lang_pick "当前已配置远端恢复，但目标机还没有安装 rclone" "Remote restore is configured, but rclone is not installed on this host yet")")
+      risk_score=3
+    elif (( remote_count == 0 )); then
+      blocking_items+=("$(lang_pick "当前已配置远端恢复，但 rclone 里还没有可用 remote" "Remote restore is configured, but no usable rclone remotes are available yet")")
+      risk_score=3
+    fi
+    if (( requires_oci_credentials == 1 )) && (( has_oci_config == 0 )); then
+      if (( has_non_oci_target == 1 )); then
+        caution_items+=("$(lang_pick "OCI 主目标当前不可用；如已配置其他远端，可先走备用远端或本地恢复" "The OCI primary target is not ready; if another remote is configured, use the fallback remote or local restore first")")
+        (( risk_score < 2 )) && risk_score=2
+      else
+        blocking_items+=("$(lang_pick "当前远端路径依赖 OCI，但目标机缺少 /root/.oci/config" "The configured remote path depends on OCI, but /root/.oci/config is missing on this host")")
+        risk_score=3
+      fi
+    fi
+  else
+    if (( has_rclone == 0 )); then
+      recommendation="$(lang_pick "先走仅本地初始化和本地恢复演练，远端访问后续再配置" "Start with local-only init and a local restore rehearsal; add remote access later")"
+    else
+      recommendation="$(lang_pick "先完成一次本地恢复演练，再决定是否启用远端备份/恢复" "Complete one local restore rehearsal first, then decide whether to enable remote backup/restore")"
+    fi
+  fi
+
+  if (( compose_count > 0 )) && (( has_docker == 0 || has_docker_compose == 0 )); then
+    caution_items+=("$(lang_pick "检测到 Compose 业务，但当前机还缺 Docker / Compose；恢复时会依赖自动补齐" "Compose workloads were detected, but Docker / Compose is currently missing; restore will rely on dependency bootstrap")")
+    (( risk_score < 2 )) && risk_score=2
+  fi
+  if (( systemd_count > 0 )); then
+    caution_items+=("$(lang_pick "存在自定义 Systemd 服务，恢复后仍需人工确认服务行为" "Custom Systemd services are present; service behavior still needs manual verification after restore")")
+    (( risk_score < 2 )) && risk_score=2
+  fi
+  if (( has_db == 1 )); then
+    caution_items+=("$(lang_pick "存在数据库，恢复后还需要业务侧一致性校验" "Databases are present; business-level consistency still needs validation after restore")")
+    (( risk_score < 2 )) && risk_score=2
+  fi
+  if (( standalone_count > 0 )); then
+    caution_items+=("$(lang_pick "存在独立 Docker 容器，这类场景更适合作为重建线索而非承诺自动恢复" "Standalone Docker containers are present; treat them as rebuild-oriented clues rather than guaranteed automatic recovery")")
+    risk_score=3
+  fi
+
+  if [[ -z "${recommendation}" ]]; then
+    if (( ${#blocking_items[@]} > 0 )); then
+      recommendation="$(lang_pick "当前不建议直接正式恢复；先补齐阻塞项，再执行一次恢复前置检查" "Do not start a real restore yet; clear the blocking items first, then rerun restore preflight")"
+    elif (( risk_score >= 3 )); then
+      recommendation="$(lang_pick "可继续评估，但正式切换前必须先完成一次恢复演练" "You may continue evaluation, but a restore rehearsal is required before real cutover")"
+    elif (( has_explicit_remote_config == 1 )); then
+      recommendation="$(lang_pick "可以先做一次远端恢复前置检查；正式切换前仍建议先完成本地恢复演练" "You can run one remote restore preflight now; a local restore rehearsal is still recommended before cutover")"
+    else
+      recommendation="$(lang_pick "先完成一次本地恢复演练，再决定是否进入远端路径" "Complete one local restore rehearsal first, then decide whether to move to the remote path")"
+    fi
   fi
 
   echo -e "${_CLR_BOLD}$(lang_pick "机器画像" "Machine profile"):${_CLR_NC}"
@@ -536,25 +612,48 @@ run_doctor() {
   echo
 
   echo -e "${_CLR_BOLD}$(lang_pick "依赖与远端条件" "Dependencies and remote readiness"):${_CLR_NC}"
-  if command -v docker >/dev/null 2>&1; then
+  if (( has_docker == 1 )); then
     echo -e "  ${_CLR_GREEN}✓${_CLR_NC} Docker"
   else
     echo -e "  ${_CLR_DIM}✗ Docker${_CLR_NC}"
   fi
-  if _doctor_has_docker_compose; then
+  if (( has_docker_compose == 1 )); then
     echo -e "  ${_CLR_GREEN}✓${_CLR_NC} Docker Compose"
   else
     echo -e "  ${_CLR_DIM}✗ Docker Compose${_CLR_NC}"
   fi
-  if command -v rclone >/dev/null 2>&1; then
+  if (( has_rclone == 1 )); then
     echo -e "  ${_CLR_GREEN}✓${_CLR_NC} rclone (${remote_count} $(lang_pick "个 remote" "remotes"))"
   else
     echo -e "  ${_CLR_DIM}✗ rclone${_CLR_NC}"
   fi
-  if [[ -f /root/.oci/config ]]; then
+  if (( has_oci_config == 1 )); then
     echo -e "  ${_CLR_GREEN}✓${_CLR_NC} $(lang_pick "OCI 凭据" "OCI credentials")"
   else
     echo -e "  ${_CLR_DIM}✗ $(lang_pick "OCI 凭据" "OCI credentials")${_CLR_NC}"
+  fi
+  echo
+
+  echo -e "${_CLR_BOLD}$(lang_pick "恢复前风险评估" "Pre-restore risk assessment"):${_CLR_NC}"
+  echo "  $(lang_pick "当前建议" "Current recommendation"): ${recommendation}"
+  echo "  $(lang_pick "风险等级" "Risk level"): $(_doctor_risk_label "${risk_score}")"
+  echo "  $(lang_pick "阻塞项" "Blocking items"):"
+  if (( ${#blocking_items[@]} == 0 )); then
+    echo "    $(lang_pick "无" "none")"
+  else
+    local blocking_item=""
+    for blocking_item in "${blocking_items[@]}"; do
+      echo "    - ${blocking_item}"
+    done
+  fi
+  echo "  $(lang_pick "注意项" "Caution items"):"
+  if (( ${#caution_items[@]} == 0 )); then
+    echo "    $(lang_pick "无明显额外风险" "no significant additional cautions")"
+  else
+    local caution_item=""
+    for caution_item in "${caution_items[@]}"; do
+      echo "    - ${caution_item}"
+    done
   fi
   echo
 
