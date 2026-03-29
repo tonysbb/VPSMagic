@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.9               ║
+  ║          VPS Magic Backup  v1.0.10              ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.9               ║
+  ║          VPS Magic Backup  v1.0.10              ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -751,7 +751,7 @@ run_doctor() {
         requires_oci_credentials=1
         if (( has_rclone == 1 )); then
           local backend_type=""
-          backend_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" 2>/dev/null || true)"
+          backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" 2>/dev/null || true)"
           if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}"; then
             has_oci_backend_support=0
           fi

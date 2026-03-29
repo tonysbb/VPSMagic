@@ -278,6 +278,18 @@ vpsmagic_rclone_remote_backend_type() {
   ' <<< "${remote_cfg}"
 }
 
+vpsmagic_expected_backend_for_remote() {
+  local remote_name="$1"
+  shift
+
+  if [[ "${remote_name}" =~ ^([Oo][Oo][Ss]|oci|oracle) ]]; then
+    printf '%s\n' "oracleobjectstorage"
+    return 0
+  fi
+
+  vpsmagic_rclone_remote_backend_type "${remote_name}" "$@"
+}
+
 vpsmagic_rclone_backend_supported() {
   local backend="$1"
   shift
@@ -292,12 +304,8 @@ vpsmagic_remote_uses_oci_credentials() {
   local remote_name="$1"
   shift
 
-  if [[ "${remote_name}" =~ ^([Oo][Oo][Ss]|oci|oracle) ]]; then
-    return 0
-  fi
-
   local backend_type=""
-  backend_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" "$@" 2>/dev/null || true)"
+  backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "$@" 2>/dev/null || true)"
   [[ "${backend_type}" == "oracleobjectstorage" ]]
 }
 
