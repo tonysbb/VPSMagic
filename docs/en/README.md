@@ -64,3 +64,21 @@ In practice:
 - Workload profiles: [docs/zh/业务画像与适用场景.md](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 
 More English task-by-task documentation can be added under `docs/en/` as the user guides are translated.
+
+## Start here
+
+- If you have no remote storage and just want one working backup first:
+  - [Quick Start](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/quickstart.md)
+- If you want to understand the project boundaries first:
+  - [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
+- If you want to configure local-only, single-remote, or dual-remote mode:
+  - [Configuration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/configuration.md)
+- If you are preparing to restore on a target machine:
+  - [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
+
+## Suggested reading order
+
+1. [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
+2. [Quick Start](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/quickstart.md)
+3. [Configuration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/configuration.md)
+4. [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
