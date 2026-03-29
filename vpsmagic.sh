@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.7               ║
+  ║          VPS Magic Backup  v1.0.8               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.7               ║
+  ║          VPS Magic Backup  v1.0.8               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -287,6 +287,21 @@ show_version() {
   echo "VPS Magic Backup v${VPSMAGIC_VERSION}"
 }
 
+_status_remote_backup_count() {
+  local remote_target="$1"
+  local listing=""
+
+  if ! command -v rclone >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if ! listing="$(rclone lsf "${remote_target}/" 2>/dev/null)"; then
+    return 1
+  fi
+
+  printf '%s\n' "${listing}" | awk '/\.tar\.gz(\.enc)?$/ {count+=1} END {print count+0}'
+}
+
 # ---------- 状态概览 ----------
 show_status() {
   local status_mode="backup"
@@ -351,13 +366,19 @@ show_status() {
     local remote_counts_json="["
     local remote_target=""
     local remote_count=0
+    local remote_available=0
     local idx=0
     if command -v rclone >/dev/null 2>&1 && (( ${#backup_targets[@]} > 0 )); then
       for idx in "${!backup_targets[@]}"; do
         remote_target="${backup_targets[$idx]}"
-        remote_count="$(rclone lsf "${remote_target}/" 2>/dev/null | awk '/\\.tar\\.gz(\\.enc)?$/ {count+=1} END {print count+0}')"
+        remote_available=0
+        if remote_count="$(_status_remote_backup_count "${remote_target}")"; then
+          remote_available=1
+        else
+          remote_count=0
+        fi
         [[ ${idx} -gt 0 ]] && remote_counts_json+=", "
-        remote_counts_json+="{\"target\": $(_json_string "${remote_target}"), \"backup_count\": ${remote_count}}"
+        remote_counts_json+="{\"target\": $(_json_string "${remote_target}"), \"backup_count\": ${remote_count}, \"available\": $(_json_bool "${remote_available}")}"
       done
     fi
     remote_counts_json+="]"
@@ -483,8 +504,11 @@ EOF
       local remote_target=""
       for remote_target in "${backup_targets[@]}"; do
         local remote_count
-        remote_count="$(rclone lsf "${remote_target}/" 2>/dev/null | awk '/\.tar\.gz(\.enc)?$/ {count+=1} END {print count+0}')"
-        echo "  ${remote_target}: ${remote_count} $(lang_pick "份" "copies")"
+        if remote_count="$(_status_remote_backup_count "${remote_target}")"; then
+          echo "  ${remote_target}: ${remote_count} $(lang_pick "份" "copies")"
+        else
+          echo "  ${remote_target}: $(lang_pick "不可用" "unavailable")"
+        fi
       done
     fi
   fi
@@ -658,6 +682,10 @@ _json_string_array() {
   local first=1
   local items=()
   eval "items=(\"\${${array_name}[@]-}\")"
+  if (( ${#items[@]} == 1 )) && [[ -z "${items[0]}" ]]; then
+    printf '[]'
+    return 0
+  fi
   for item in "${items[@]}"; do
     if (( first == 0 )); then
       out+=", "

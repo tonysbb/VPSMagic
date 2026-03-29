@@ -99,6 +99,9 @@ Each item currently includes:
 
 - `target`
 - `backup_count`
+- `available`
+
+`available` is `false` when the target exists in config but cannot be listed from the current machine.
 
 If `rclone` is unavailable or no remote target is configured, this array may be empty.
 
