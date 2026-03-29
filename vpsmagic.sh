@@ -925,27 +925,27 @@ parse_args() {
             --dry-run)  DRY_RUN=1; shift ;;
             --verbose)  VERBOSE=1; shift ;;
             --config)
-              [[ $# -ge 2 ]] || { log_error "--config 需要一个参数"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--config 需要一个参数" "--config requires an argument")"; exit 1; }
               CONFIG_FILE="$2"; shift 2 ;;
             --dest)
-              [[ $# -ge 2 ]] || { log_error "--dest 需要一个参数"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--dest 需要一个参数" "--dest requires an argument")"; exit 1; }
               CLI_BACKUP_DESTINATION="$2"; shift 2 ;;
             --remote)
-              [[ $# -ge 2 ]] || { log_error "--remote 需要一个参数"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--remote 需要一个参数" "--remote requires an argument")"; exit 1; }
               CLI_BACKUP_REMOTE_OVERRIDE="$2"; shift 2 ;;
             --lang)
-              [[ $# -ge 2 ]] || { log_error "--lang 需要一个参数"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--lang 需要一个参数" "--lang requires an argument")"; exit 1; }
               CLI_UI_LANG="$2"; set_ui_language "$2"; shift 2 ;;
             --local)
               # restore --local <path>
-              [[ $# -ge 2 ]] || { log_error "--local 需要指定备份文件路径"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--local 需要指定备份文件路径" "--local requires a backup file path")"; exit 1; }
               RESTORE_LOCAL_FILE="$2"; shift 2 ;;
             --auto-confirm)
               RESTORE_AUTO_CONFIRM=1; shift ;;
             --rollback-on-failure)
               CLI_RESTORE_ROLLBACK_ON_FAILURE=true; shift ;;
             --source-hostname)
-              [[ $# -ge 2 ]] || { log_error "--source-hostname 需要一个参数"; exit 1; }
+              [[ $# -ge 2 ]] || { log_error "$(lang_pick "--source-hostname 需要一个参数" "--source-hostname requires an argument")"; exit 1; }
               CLI_RESTORE_SOURCE_HOSTNAME="$2"; shift 2 ;;
             *)
               SUBCMD_ARGS+=("$1"); shift ;;
@@ -955,26 +955,26 @@ parse_args() {
       --dry-run)  DRY_RUN=1; shift ;;
       --verbose)  VERBOSE=1; shift ;;
       --config)
-        [[ $# -ge 2 ]] || { log_error "--config 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--config 需要一个参数" "--config requires an argument")"; exit 1; }
         CONFIG_FILE="$2"; shift 2 ;;
       --dest)
-        [[ $# -ge 2 ]] || { log_error "--dest 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--dest 需要一个参数" "--dest requires an argument")"; exit 1; }
         CLI_BACKUP_DESTINATION="$2"; shift 2 ;;
       --remote)
-        [[ $# -ge 2 ]] || { log_error "--remote 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--remote 需要一个参数" "--remote requires an argument")"; exit 1; }
         CLI_BACKUP_REMOTE_OVERRIDE="$2"; shift 2 ;;
       --lang)
-        [[ $# -ge 2 ]] || { log_error "--lang 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--lang 需要一个参数" "--lang requires an argument")"; exit 1; }
         CLI_UI_LANG="$2"; set_ui_language "$2"; shift 2 ;;
       --version|-v)
         SHOW_VERSION_ONLY=1; shift ;;
       --help|-h)
         SHOW_HELP_ONLY=1; shift ;;
       --source-hostname)
-        [[ $# -ge 2 ]] || { log_error "--source-hostname 需要一个参数"; exit 1; }
+        [[ $# -ge 2 ]] || { log_error "$(lang_pick "--source-hostname 需要一个参数" "--source-hostname requires an argument")"; exit 1; }
         CLI_RESTORE_SOURCE_HOSTNAME="$2"; shift 2 ;;
       *)
-        log_error "未知参数: $1"
+        log_error "$(lang_pick "未知参数" "Unknown argument"): $1"
         show_help
         exit 1
         ;;
@@ -1087,7 +1087,7 @@ main() {
       run_doctor
       ;;
     *)
-      log_error "未知命令: ${SUBCOMMAND}"
+      log_error "$(lang_pick "未知命令" "Unknown command"): ${SUBCOMMAND}"
       show_help
       exit 1
       ;;
