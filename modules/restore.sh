@@ -946,6 +946,7 @@ _list_remote_backup_archives() {
   local remote="$1"
   local out_var="$2"
   local err_var="$3"
+  local query_timeout="${4:-0}"
   local rclone_bin=""
   rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
   if [[ -z "${rclone_bin}" ]]; then
@@ -958,7 +959,7 @@ _list_remote_backup_archives() {
   local -a collected=()
   local fname=""
 
-  output="$("${rclone_bin}" lsf "${remote}/" --files-only 2>&1)" || rc=$?
+  output="$(vpsmagic_run_with_timeout "${query_timeout}" "${rclone_bin}" lsf "${remote}/" --files-only 2>&1)" || rc=$?
   if (( rc != 0 )); then
     printf -v "${err_var}" '%s' "$(printf '%s\n' "${output}" | head -1)"
     eval "${out_var}=()"
