@@ -16,6 +16,7 @@
 - 你准备在新机恢复：看 [恢复说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/恢复说明.md)
 - 你遇到了错误或恢复结果不符合预期：看 [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 - 你不确定自己的 VPS 属于哪一类：看 [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
+- 你想看一轮真实空机远端恢复是否已经验证通过：看 [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
 
 ## 三条最短路径
 
@@ -56,6 +57,7 @@
 9. [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 10. [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
 11. [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
+12. [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
 
 ## 第一次使用时你可以先不关心
 
@@ -69,3 +71,8 @@
 - `--rollback-on-failure`
 
 先把第一轮最小闭环做出来，再升级能力，排错成本最低。
+
+如果你已经准备上线远端恢复，请把下面两项当成安全验证门槛，而不是“可有可无的缺失项”：
+
+- `rclone.conf`
+- `/root/.oci/config`

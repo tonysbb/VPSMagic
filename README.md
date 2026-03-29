@@ -69,7 +69,7 @@ bash vpsmagic.sh doctor
 
 1. 本项目默认追求“恢复到可运行状态”，不是“完整系统镜像回放”。
 2. 轻量回滚仅覆盖配置级内容，不覆盖卷数据、数据库结果或业务副作用。
-3. 远端恢复依赖目标机事先具备相应凭据，例如 `rclone.conf`、`/root/.oci/config`。
+3. 远端恢复依赖目标机事先具备相应凭据，例如 `rclone.conf`、`/root/.oci/config`；这也是刻意保留的安全验证门槛。
 4. 数据库恢复不等于业务数据一致性恢复，生产切换前仍应做业务侧校验。
 5. 对未明确支持的部署形态，必须先做演练，不应直接把首次恢复结果当作上线依据。
 
@@ -195,6 +195,7 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 - [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 - [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
 - [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
+- [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
 
 English docs:
 
@@ -208,11 +209,12 @@ English docs:
 - 远端恢复支持前置检查、可用远端过滤、主远端失败自动回退
 - 同名本地归档且 `.sha256` 一致时直接复用
 - 缺 `rclone`、Docker / Compose 时可尝试自动安装
+- Debian 空机默认源缺 `docker-compose-plugin` 时，会继续尝试 Docker 官方仓库
 - 恢复前会生成配置级快照，并把回滚边界写入快照目录
 
 ## 当前已知限制
 
-- 不会自动生成 `rclone.conf` 或 `/root/.oci/config`
+- 不会自动生成 `rclone.conf` 或 `/root/.oci/config`；它们被视为远端恢复的安全验证门槛
 - 独立 Docker 容器仍不是自动恢复主路径
 - 数据库恢复仍以逻辑导出与文件恢复为主，不承诺业务层一致性验证
 - 轻量回滚仍是配置级，不是完整系统回滚
