@@ -480,6 +480,7 @@ get_backup_async_target() {
 print_config() {
   local mode="${1:-}"
   local -a backup_targets=()
+  local has_explicit_remote_config=0
   if [[ -z "${mode}" ]]; then
     if [[ "${SUBCOMMAND:-}" == "restore" || -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
       mode="restore"
@@ -488,10 +489,16 @@ print_config() {
     fi
   fi
 
-  if [[ "${mode}" == "restore" ]]; then
-    get_restore_targets backup_targets
-  else
-    get_backup_targets backup_targets
+  if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" || -n "${BACKUP_TARGETS:-}" || -n "${RCLONE_REMOTE:-}" ]]; then
+    has_explicit_remote_config=1
+  fi
+
+  if (( has_explicit_remote_config == 1 )); then
+    if [[ "${mode}" == "restore" ]]; then
+      get_restore_targets backup_targets
+    else
+      get_backup_targets backup_targets
+    fi
   fi
 
   echo
@@ -501,10 +508,14 @@ print_config() {
   echo "  $(lang_pick "界面语言" "Interface language"):       ${UI_LANG:-zh}"
   echo "  $(lang_pick "远端目标策略" "Remote target strategy"):"
   local idx=1
-  for target in "${backup_targets[@]}"; do
-    echo "    ${idx}. ${target}"
-    ((idx+=1))
-  done
+  if (( ${#backup_targets[@]} > 0 )); then
+    for target in "${backup_targets[@]}"; do
+      echo "    ${idx}. ${target}"
+      ((idx+=1))
+    done
+  else
+    echo "    $(lang_pick "未配置" "not configured")"
+  fi
   if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
     if [[ "${mode}" == "restore" ]]; then
       echo "  $(lang_pick "默认主目标" "Default primary target"): $(get_restore_primary_target)"
