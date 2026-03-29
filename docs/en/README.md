@@ -64,6 +64,31 @@ Then choose:
 
 This gives you a minimal usable path before you deal with remote storage, OCI, R2, or `rclone`.
 
+## Document groups
+
+### 1. First-time onboarding
+
+1. [New User, New Environment Guide](./new-user-new-environment-guide.md)
+2. [Quick Start](./quickstart.md)
+3. [Configuration](./configuration.md)
+
+### 2. Runtime and recovery
+
+1. [Backup](./backup.md)
+2. [Status](./status.md)
+3. [Restore](./restore.md)
+4. [Migration](./migrate.md)
+5. [Scheduled Backups](./schedule.md)
+6. [Troubleshooting](./troubleshooting.md)
+
+### 3. Boundaries and validation
+
+1. [Disclaimer](./disclaimer.md)
+2. [Capability Matrix](./capability-matrix.md)
+3. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
+4. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
+5. [Final Acceptance Summary](./final-acceptance-summary.md)
+
 ## Recovery mindset
 
 This project is designed to restore a VPS to a **runnable and maintainable** state, not to promise full system replay for every workload shape.
@@ -89,6 +114,8 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 
 ## Start here
 
+- If you are new and need help choosing the right path first:
+  - [New User, New Environment Guide](./new-user-new-environment-guide.md)
 - If you have no remote storage and just want one working backup first:
   - [Quick Start](./quickstart.md)
 - If you want to understand the project boundaries first:
@@ -117,13 +144,14 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 
 ## Suggested reading order
 
-1. [Disclaimer](./disclaimer.md)
-2. [Quick Start](./quickstart.md)
-3. [Configuration](./configuration.md)
-4. [Backup](./backup.md)
-5. [Status](./status.md)
-6. [Restore](./restore.md)
-7. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
-8. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
-9. [Capability Matrix](./capability-matrix.md)
-10. [Final Acceptance Summary](./final-acceptance-summary.md)
+1. [New User, New Environment Guide](./new-user-new-environment-guide.md)
+2. [Disclaimer](./disclaimer.md)
+3. [Quick Start](./quickstart.md)
+4. [Configuration](./configuration.md)
+5. [Backup](./backup.md)
+6. [Status](./status.md)
+7. [Restore](./restore.md)
+8. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
+9. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
+10. [Capability Matrix](./capability-matrix.md)
+11. [Final Acceptance Summary](./final-acceptance-summary.md)

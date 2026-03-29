@@ -206,16 +206,27 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 
 中文文档：
 
-- [中文文档总览](docs/zh/README.md)
+- 总览入口：[中文文档总览](docs/zh/README.md)
+
+首次上手：
+
+- [新用户新环境开局指导](docs/zh/新用户新环境开局指导.md)
 - [零配置起步](docs/zh/零配置起步.md)
-- [免责声明](docs/zh/免责声明.md)
 - [快速开始](docs/zh/快速开始.md)
 - [配置说明](docs/zh/配置说明.md)
+
+运行与恢复：
+
 - [备份说明](docs/zh/备份说明.md)
+- [状态说明](docs/zh/状态说明.md)
 - [恢复说明](docs/zh/恢复说明.md)
 - [迁移说明](docs/zh/迁移说明.md)
 - [定时任务说明](docs/zh/定时任务说明.md)
 - [排障说明](docs/zh/排障说明.md)
+
+边界与验收：
+
+- [免责声明](docs/zh/免责声明.md)
 - [能力矩阵](docs/zh/能力矩阵.md)
 - [业务画像与适用场景](docs/zh/业务画像与适用场景.md)
 - [真实空机远端恢复验收](docs/zh/真实空机远端恢复验收.md)
@@ -223,7 +234,9 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 
 English docs:
 
-- [English docs overview](docs/en/README.md)
+- Overview: [docs/en/README.md](docs/en/README.md)
+- New-user guide: [docs/en/new-user-new-environment-guide.md](docs/en/new-user-new-environment-guide.md)
+- Status fields: [docs/en/status.md](docs/en/status.md)
 - [Real empty-host remote restore acceptance](docs/en/real-empty-host-remote-restore-acceptance.md)
 - [Final acceptance summary](docs/en/final-acceptance-summary.md)
 
