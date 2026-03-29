@@ -2319,7 +2319,7 @@ _restore_firewall() {
     log_info "  $(lang_pick "恢复 UFW 配置" "Restoring UFW configuration")"
     if ! log_dry_run "$(lang_pick "恢复 UFW" "Restore UFW")"; then
       tar -xzf "${mod_dir}/etc_ufw.tar.gz" -C /etc 2>/dev/null || true
-      ufw reload 2>/dev/null || true
+      ufw reload >/dev/null 2>&1 || true
     fi
   fi
 
