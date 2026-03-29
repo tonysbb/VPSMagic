@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # VPS Magic Backup — 主入口脚本
-# 版本: v1.0.16
+# 版本: v1.0.17
 #
 # 一套面向个人/小团队 VPS 运维的全栈备份与灾难恢复工具。
 # 支持 Docker Compose / 独立容器 / Systemd / 反代 / 数据库 /
@@ -280,19 +280,28 @@ show_version() {
 _status_remote_backup_count() {
   local remote_target="$1"
   local listing=""
-  local rclone_bin=""
   local query_timeout="${VPSMAGIC_STATUS_REMOTE_TIMEOUT:-6}"
+
+  if ! listing="$(_status_remote_backup_listing "${remote_target}" "${query_timeout}")"; then
+    return 1
+  fi
+
+  printf '%s\n' "${listing}" | awk 'NF {count+=1} END {print count+0}'
+}
+
+_status_remote_backup_listing() {
+  local remote_target="$1"
+  local query_timeout="${2:-6}"
+  local rclone_bin=""
 
   rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
   if [[ -z "${rclone_bin}" ]]; then
     return 1
   fi
 
-  if ! listing="$(vpsmagic_run_with_timeout "${query_timeout}" "${rclone_bin}" lsf "${remote_target}/" 2>/dev/null)"; then
-    return 1
-  fi
-
-  printf '%s\n' "${listing}" | awk '/\.tar\.gz(\.enc)?$/ {count+=1} END {print count+0}'
+  vpsmagic_run_with_timeout "${query_timeout}" "${rclone_bin}" lsf "${remote_target}/" --files-only 2>/dev/null | awk '
+    /\.tar\.gz$/ || /\.tar\.gz\.enc$/ { print }
+  '
 }
 
 # ---------- 状态概览 ----------
