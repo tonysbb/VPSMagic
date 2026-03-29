@@ -64,17 +64,17 @@ Best when you clearly need a primary target plus an async replica:
 
 ```bash
 BACKUP_DESTINATION="remote"
-BACKUP_TARGETS="OOS:bucket/vpsmagic/{hostname},R2:mybucket/vpsmagic/{hostname}"
-BACKUP_PRIMARY_TARGET="OOS:bucket/vpsmagic/{hostname}"
-BACKUP_ASYNC_TARGET="R2:mybucket/vpsmagic/{hostname}"
+BACKUP_TARGETS="OOS:primary-bucket/vpsmagic/{hostname},R2:replica-bucket/vpsmagic/{hostname}"
+BACKUP_PRIMARY_TARGET="OOS:primary-bucket/vpsmagic/{hostname}"
+BACKUP_ASYNC_TARGET="R2:replica-bucket/vpsmagic/{hostname}"
 ```
 
 ## Remote targets
 
 ```bash
-BACKUP_TARGETS="OOS:bucket/vpsmagic/{hostname},R2:mybucket/vpsmagic/{hostname}"
-BACKUP_PRIMARY_TARGET="OOS:bucket/vpsmagic/{hostname}"
-BACKUP_ASYNC_TARGET="R2:mybucket/vpsmagic/{hostname}"
+BACKUP_TARGETS="OOS:primary-bucket/vpsmagic/{hostname},R2:replica-bucket/vpsmagic/{hostname}"
+BACKUP_PRIMARY_TARGET="OOS:primary-bucket/vpsmagic/{hostname}"
+BACKUP_ASYNC_TARGET="R2:replica-bucket/vpsmagic/{hostname}"
 BACKUP_INTERACTIVE_TARGETS=true
 ```
 
@@ -98,7 +98,7 @@ Default examples:
 
 ```bash
 openlist_webdav:backup/{hostname}
-s3:mybucket/vpsmagic/{hostname}
+s3:storage-bucket/vpsmagic/{hostname}
 gdrive:VPSMagicBackup/{hostname}
 manualremote:backup/{hostname}
 ```

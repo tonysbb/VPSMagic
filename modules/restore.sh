@@ -19,6 +19,7 @@ _RESTORE_PREFLIGHT_READY=()
 _RESTORE_PREFLIGHT_ERRORS=()
 _RESTORE_DOCKER_INSTALL_ERROR=""
 _RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
+_RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=0
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -34,6 +35,7 @@ _reset_restore_health_checks() {
   _RESTORE_PREFLIGHT_ERRORS=()
   _RESTORE_DOCKER_INSTALL_ERROR=""
   _RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=0
 }
 
 _append_unique_line() {
@@ -268,6 +270,10 @@ _ensure_rclone_installed() {
     return 0
   fi
 
+  if _install_rclone_via_official_script; then
+    return 0
+  fi
+
   local pm=""
   pm="$(detect_pkg_manager)"
   log_info "  $(lang_pick "尝试安装 rclone..." "Attempting to install rclone...")"
@@ -294,6 +300,31 @@ _ensure_rclone_installed() {
   esac
 
   command -v rclone >/dev/null 2>&1
+}
+
+_install_rclone_via_official_script() {
+  if (( _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED == 1 )); then
+    command -v rclone >/dev/null 2>&1
+    return $?
+  fi
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=1
+
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v bash >/dev/null 2>&1 || return 1
+
+  local installer=""
+  installer="$(mktemp /tmp/vpsmagic-rclone-install.XXXXXX 2>/dev/null || true)"
+  [[ -n "${installer}" ]] || return 1
+
+  log_info "  $(lang_pick "尝试通过 rclone 官方安装脚本安装/升级 rclone..." "Attempting to install/upgrade rclone via the official installer...")"
+  if curl -fsSL https://rclone.org/install.sh -o "${installer}" >/dev/null 2>&1 && bash "${installer}" >/dev/null 2>&1; then
+    rm -f "${installer}" >/dev/null 2>&1 || true
+    command -v rclone >/dev/null 2>&1 || return 1
+    return 0
+  fi
+
+  rm -f "${installer}" >/dev/null 2>&1 || true
+  return 1
 }
 
 _ensure_docker_stack_installed() {
@@ -955,6 +986,10 @@ _preflight_restore_remote_target() {
 
   local backend_type=""
   backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
+  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
+    _install_rclone_via_official_script >/dev/null 2>&1 || true
+    backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
+  fi
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
     printf -v "${err_var}" '%s' "$(lang_pick "当前 rclone 不支持该远端 backend" "the current rclone build does not support this remote backend"): ${remote_name} (type=${backend_type})$(lang_pick "。请安装支持该 backend 的 rclone，或改用其他远端 / restore --local。" ". Install an rclone build that supports this backend, or use another remote / restore --local.")"
     return 1

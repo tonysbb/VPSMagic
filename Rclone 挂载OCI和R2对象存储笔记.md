@@ -60,11 +60,11 @@ config_profile = DEFAULT
 ```bash
 # 验证
 rclone lsd OOS:
-rclone ls OOS:mybucket
+rclone ls OOS:bucket-name
 
 # 挂载
 mkdir -p /mnt/oci-bucket
-rclone mount OOS:mybucket /mnt/oci-bucket \
+rclone mount OOS:bucket-name /mnt/oci-bucket \
   --allow-non-empty --allow-other \
   --vfs-cache-mode writes \
   --vfs-cache-max-size 5G \
@@ -120,7 +120,7 @@ systemctl start rclone-oci
 - Account ID
 - R2 的 Access Key ID
 - R2 的 Secret Access Key
-- 已创建好的 bucket 名称（例如 `mybucket`）
+- 已创建好的 bucket 名称（例如 `bucket-name`）
 
 Cloudflare 官方说明中，rclone 连接 R2 前需要先生成 Access Key，然后使用该密钥对进行访问。
 
@@ -184,9 +184,9 @@ no_check_bucket = true
 
 ```bash
 # 查看指定 bucket 内容
-rclone ls R2:mybucket
+rclone ls R2:bucket-name
 ```
-- `mybucket` 本例中创建的bucket名称。
+- `bucket-name` 本例中的示例 bucket 名称。
 如果能够列出文件，说明配置成功。
 
 ---
@@ -202,7 +202,7 @@ mkdir -p /mnt/r2-bucket
 然后执行挂载命令：
 
 ```bash
-rclone mount r2:mybucket /mnt/r2-bucket \
+rclone mount r2:bucket-name /mnt/r2-bucket \
   --allow-non-empty \
   --allow-other \
   --dir-perms 0755 \
@@ -240,7 +240,7 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=/usr/bin/rclone mount r2:mybucket /mnt/r2-bucket \
+ExecStart=/usr/bin/rclone mount r2:bucket-name /mnt/r2-bucket \
   --allow-non-empty \
   --allow-other \
   --vfs-cache-mode writes \

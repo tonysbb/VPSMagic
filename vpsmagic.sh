@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.10              ║
+  ║          VPS Magic Backup  v1.0.11              ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.10              ║
+  ║          VPS Magic Backup  v1.0.11              ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -1152,9 +1152,9 @@ run_init() {
         read_with_default backup_targets "$(lang_pick "请输入 WebDAV/OpenList 备份目标" "Enter the WebDAV/OpenList backup target")" "openlist_webdav:backup/{hostname}"
         ;;
       s3)
-        echo "  $(lang_pick "示例格式:" "Example format:") s3:mybucket/vpsmagic/{hostname}"
+        echo "  $(lang_pick "示例格式:" "Example format:") s3:storage-bucket/vpsmagic/{hostname}"
         echo "  $(lang_pick "如果你使用 OCI / R2，也属于这一类，只是 remote 名称不同。" "OCI and R2 also belong to this category; only the remote name differs.")"
-        read_with_default backup_targets "$(lang_pick "请输入 S3 兼容备份目标" "Enter the S3-compatible backup target")" "s3:mybucket/vpsmagic/{hostname}"
+        read_with_default backup_targets "$(lang_pick "请输入 S3 兼容备份目标" "Enter the S3-compatible backup target")" "s3:storage-bucket/vpsmagic/{hostname}"
         ;;
       drive)
         echo "  $(lang_pick "示例格式:" "Example format:") gdrive:VPSMagicBackup/{hostname}"
@@ -1162,7 +1162,7 @@ run_init() {
         read_with_default backup_targets "$(lang_pick "请输入网盘备份目标" "Enter the cloud drive backup target")" "gdrive:VPSMagicBackup/{hostname}"
         ;;
       manual)
-        echo "  $(lang_pick "支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
+        echo "  $(lang_pick "支持 {hostname} 占位符，例如 OOS:primary-bucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:primary-bucket/vpsmagic/{hostname}")"
         echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
         read_with_default backup_targets "$(lang_pick "请输入备份目标列表" "Enter backup targets")" ""
         ;;
