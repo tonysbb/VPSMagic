@@ -186,6 +186,23 @@ load_config() {
     return 0
   fi
 
+  if [[ -z "${log_lang}" ]]; then
+    local peek_lang=""
+    peek_lang="$(grep -E '^[[:space:]]*(export[[:space:]]+)?UI_LANG=' "${found}" 2>/dev/null | tail -n 1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?UI_LANG=//')"
+    peek_lang="${peek_lang%%[[:space:]]#*}"
+    peek_lang="$(_trim_spaces "${peek_lang}")"
+    if [[ "${peek_lang}" =~ ^\".*\"$ ]]; then
+      peek_lang="${peek_lang:1:${#peek_lang}-2}"
+    elif [[ "${peek_lang}" =~ ^\'.*\'$ ]]; then
+      peek_lang="${peek_lang:1:${#peek_lang}-2}"
+    fi
+    if [[ -n "${peek_lang}" ]]; then
+      log_lang="$(normalize_ui_lang "${peek_lang}")"
+    fi
+  fi
+
+  UI_LANG="${log_lang:-${UI_LANG:-}}"
+
   log_info "$(lang_pick "加载配置文件" "Loading config file"): ${found}"
 
   # 安全检查：配置文件不应该有过于宽松的权限
@@ -203,10 +220,9 @@ load_config() {
   fi
 
   local loaded_ui_lang="${UI_LANG:-}"
-  UI_LANG="${log_lang:-${loaded_ui_lang}}"
+  UI_LANG="${loaded_ui_lang:-${log_lang}}"
   _VPSMAGIC_CONFIG_FILE="${found}"
   log_success "$(lang_pick "配置加载完成" "Config loaded successfully")"
-  UI_LANG="${loaded_ui_lang}"
   return 0
 }
 
