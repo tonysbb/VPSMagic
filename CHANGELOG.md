@@ -2,6 +2,19 @@
 
 All commit summaries recorded by deploy.sh.
 
+## [v1.0.18] - 2026-03-30
+
+```text
+fix: avoid status hangs and align banners
+fix: align status remote counts with restore
+fix: reuse restore remote listing in status
+```
+
+See also:
+
+- 中文发布说明: [docs/zh/发布说明-v1.0.18.md](docs/zh/发布说明-v1.0.18.md)
+- English release notes: [docs/en/release-notes-v1.0.18.md](docs/en/release-notes-v1.0.18.md)
+
 ## [v1.0.15] - 2026-03-30
 
 ```text
@@ -42,4 +55,3 @@ fix: repair restore rollback prompt tty check
 ```text
 feat: add interactive remote backup and guarded restore rollback
 ```
-
