@@ -1653,11 +1653,11 @@ run_restore() {
 
 _restore_docker_compose() {
   local mod_dir="$1"
-  log_step "恢复 Docker Compose 项目..."
+  log_step "$(lang_pick "恢复 Docker Compose 项目..." "Restoring Docker Compose projects...")"
 
   if ! command -v docker >/dev/null 2>&1; then
     if ! _ensure_docker_stack_installed; then
-      log_warn "Docker 未安装且自动安装失败，请先安装 Docker。"
+      log_warn "$(lang_pick "Docker 未安装且自动安装失败，请先安装 Docker。" "Docker is not installed and automatic installation failed. Please install Docker first.")"
       summary_add "warn" "恢复 Docker Compose" "Docker 未安装且自动安装失败"
       return 0
     fi
@@ -1665,7 +1665,7 @@ _restore_docker_compose() {
 
   if ! docker compose version >/dev/null 2>&1; then
     if ! _ensure_docker_stack_installed; then
-      log_warn "Docker Compose 不可用且自动安装失败，请先安装 Docker Compose。"
+      log_warn "$(lang_pick "Docker Compose 不可用且自动安装失败，请先安装 Docker Compose。" "Docker Compose is unavailable and automatic installation failed. Please install Docker Compose first.")"
       summary_add "warn" "恢复 Docker Compose" "Docker Compose 不可用且自动安装失败"
       return 0
     fi
@@ -1684,9 +1684,9 @@ _restore_docker_compose() {
       original_path="/opt/${compose_project_name}"
     fi
 
-    log_info "  恢复项目: ${compose_project_name} (${backup_key}) -> ${original_path}"
+    log_info "  $(lang_pick "恢复项目" "Restoring project"): ${compose_project_name} (${backup_key}) -> ${original_path}"
 
-    if log_dry_run "恢复 Docker Compose: ${compose_project_name}"; then continue; fi
+    if log_dry_run "$(lang_pick "恢复 Docker Compose" "Restore Docker Compose"): ${compose_project_name}"; then continue; fi
 
     safe_mkdir "${original_path}"
 
@@ -1704,7 +1704,7 @@ _restore_docker_compose() {
         [[ -f "${vol_archive}" ]] || continue
         local vol_name
         vol_name="$(basename "${vol_archive}" .tar.gz)"
-        log_debug "    恢复卷: ${vol_name}"
+        log_debug "    $(lang_pick "恢复卷" "Restoring volume"): ${vol_name}"
         # 创建 Docker volume
         local full_vol="${compose_project_name}_${vol_name}"
         docker volume create "${full_vol}" >/dev/null 2>&1 || true
@@ -1726,17 +1726,17 @@ _restore_docker_compose() {
           if [[ -f "${proj_dir}/bind_mounts/${safe_name}.tar.gz" ]]; then
             safe_mkdir "$(dirname "${mount_src}")"
             _extract_tar_safe "${proj_dir}/bind_mounts/${safe_name}.tar.gz" "$(dirname "${mount_src}")" "bind mount ${mount_src}" || {
-              log_warn "    bind mount 目录恢复失败: ${mount_src}"
+              log_warn "    $(lang_pick "bind mount 目录恢复失败" "Bind mount directory restore failed"): ${mount_src}"
               continue
             }
-            log_debug "    恢复 bind mount: ${mount_src}"
+            log_debug "    $(lang_pick "恢复 bind mount" "Restoring bind mount"): ${mount_src}"
           elif [[ -f "${proj_dir}/bind_mounts/${safe_name}" ]]; then
             safe_mkdir "$(dirname "${mount_src}")"
             cp -a "${proj_dir}/bind_mounts/${safe_name}" "${mount_src}" 2>/dev/null || {
-              log_warn "    bind mount 文件恢复失败: ${mount_src}"
+              log_warn "    $(lang_pick "bind mount 文件恢复失败" "Bind mount file restore failed"): ${mount_src}"
               continue
             }
-            log_debug "    恢复 bind mount: ${mount_src}"
+            log_debug "    $(lang_pick "恢复 bind mount" "Restoring bind mount"): ${mount_src}"
           fi
         done < "${proj_dir}/bind_mounts/_mount_map.txt"
       fi
@@ -1745,31 +1745,31 @@ _restore_docker_compose() {
     # 还原项目配置文件
     if [[ -d "${proj_dir}/project_configs" ]]; then
       cp -a "${proj_dir}/project_configs/." "${original_path}/" 2>/dev/null || true
-      log_debug "    恢复项目配置文件"
+      log_debug "    $(lang_pick "恢复项目配置文件" "Restored project config files")"
     fi
 
     # 恢复文件权限 (关键: 如 aria2 temp 需要 65534:65534 uid:gid)
     if [[ -f "${proj_dir}/_permissions.txt" ]]; then
-      log_info "  恢复文件权限..."
+      log_info "  $(lang_pick "恢复文件权限..." "Restoring file permissions...")"
       while IFS=' ' read -r perms owner path; do
         [[ "${perms}" =~ ^[0-9]+$ ]] || continue
         [[ -e "${path}" ]] || continue
         chmod "${perms}" "${path}" 2>/dev/null || true
         chown "${owner}" "${path}" 2>/dev/null || true
       done < <(grep -v '^#' "${proj_dir}/_permissions.txt" 2>/dev/null)
-      log_debug "    权限已恢复"
+      log_debug "    $(lang_pick "权限已恢复" "Permissions restored")"
     fi
 
     # 启动项目（在权限恢复之后）
-    log_info "  启动项目: ${compose_project_name}"
+    log_info "  $(lang_pick "启动项目" "Starting project"): ${compose_project_name}"
     (
       cd "${original_path}" && \
       docker compose down --remove-orphans 2>/dev/null || true
     )
-    log_info "  重建默认网络: ${compose_project_name}_default"
+    log_info "  $(lang_pick "重建默认网络" "Recreating default network"): ${compose_project_name}_default"
     docker network rm "${compose_project_name}_default" >/dev/null 2>&1 || true
     (cd "${original_path}" && docker compose pull 2>/dev/null && docker compose up -d --force-recreate 2>/dev/null) || {
-      log_warn "  项目 ${compose_project_name} 启动失败，请手动检查"
+      log_warn "  $(lang_pick "项目启动失败，请手动检查" "Project failed to start. Please inspect it manually"): ${compose_project_name}"
     }
     _register_restore_compose_dir "${original_path}"
   done
@@ -1779,7 +1779,7 @@ _restore_docker_compose() {
 
 _restore_docker_standalone() {
   local mod_dir="$1"
-  log_step "恢复独立 Docker 容器..."
+  log_step "$(lang_pick "恢复独立 Docker 容器..." "Restoring standalone Docker containers...")"
 
   if ! command -v docker >/dev/null 2>&1; then
     if ! _ensure_docker_stack_installed; then
@@ -1798,16 +1798,16 @@ _restore_docker_standalone() {
       continue
     fi
 
-    log_info "  恢复容器: ${name}"
+    log_info "  $(lang_pick "恢复容器" "Restoring container"): ${name}"
 
-    if log_dry_run "恢复独立容器: ${name}"; then continue; fi
+    if log_dry_run "$(lang_pick "恢复独立容器" "Restore standalone container"): ${name}"; then continue; fi
 
     local image=""
     image="$(_read_env_value "${container_dir}/metadata.env" "IMAGE")"
 
     # 拉取镜像
     if [[ -n "${image}" ]]; then
-      docker pull "${image}" 2>/dev/null || log_warn "    镜像拉取失败: ${image}"
+      docker pull "${image}" 2>/dev/null || log_warn "    $(lang_pick "镜像拉取失败" "Image pull failed"): ${image}"
     fi
 
     # 还原卷数据
@@ -1816,12 +1816,12 @@ _restore_docker_standalone() {
         [[ -f "${vol_archive}" ]] || continue
         local vol_name
         vol_name="$(basename "${vol_archive}" .tar.gz)"
-        log_debug "    恢复卷: ${vol_name}"
+        log_debug "    $(lang_pick "恢复卷" "Restoring volume"): ${vol_name}"
       done
     fi
 
-    log_info "    注意: 独立容器需要根据 ${container_dir}/inspect.json 手动重建"
-    log_info "    或参考 ${container_dir}/metadata.env 中的配置"
+    log_info "    $(lang_pick "注意: 独立容器需要根据 inspect.json 手动重建" "Note: standalone containers need manual recreation based on inspect.json"): ${container_dir}/inspect.json"
+    log_info "    $(lang_pick "或参考 metadata.env 中的配置" "Or refer to the settings in metadata.env"): ${container_dir}/metadata.env"
     ((manual_count+=1))
   done
 
@@ -1834,7 +1834,7 @@ _restore_docker_standalone() {
 
 _restore_systemd() {
   local mod_dir="$1"
-  log_step "恢复 Systemd 服务..."
+  log_step "$(lang_pick "恢复 Systemd 服务..." "Restoring Systemd services...")"
   local restored_count=0
   local warning_count=0
   local deferred_count=0
@@ -1845,10 +1845,10 @@ _restore_systemd() {
     svc_name="$(basename "${svc_dir}")"
     local svc_warn=0
 
-    log_info "  恢复服务: ${svc_name}"
+    log_info "  $(lang_pick "恢复服务" "Restoring service"): ${svc_name}"
     _register_restore_systemd_service "${svc_name}"
 
-    if log_dry_run "恢复 Systemd: ${svc_name}"; then continue; fi
+    if log_dry_run "$(lang_pick "恢复 Systemd" "Restore Systemd"): ${svc_name}"; then continue; fi
 
     # 还原 service 文件
     for sf in "${svc_dir}"/*.service; do
@@ -1886,7 +1886,7 @@ _restore_systemd() {
         if [[ -n "${cfg_target}" ]]; then
           safe_mkdir "$(dirname "${cfg_target}")"
           cp -a "${svc_dir}/${cfg}" "${cfg_target}" 2>/dev/null || true
-          log_debug "    还原配置: ${cfg}"
+          log_debug "    $(lang_pick "还原配置" "Restoring config"): ${cfg}"
         fi
       fi
     done
@@ -1898,14 +1898,14 @@ _restore_systemd() {
       local py_version="python3"
       [[ -f "${svc_dir}/_python_version.txt" ]] && py_version="$(cat "${svc_dir}/_python_version.txt" | awk '{print $2}' | cut -d. -f1,2)"
 
-      log_info "    重建 Python venv: ${venv_path}"
+      log_info "    $(lang_pick "重建 Python venv" "Rebuilding Python venv"): ${venv_path}"
       if command -v python3 >/dev/null 2>&1; then
         if ! _ensure_python_venv_support; then
-          log_warn "    python3-venv 不可用，请先安装后再重建: apt-get install python3-venv"
+          log_warn "    $(lang_pick "python3-venv 不可用，请先安装后再重建" "python3-venv is unavailable. Install it before rebuilding"): apt-get install python3-venv"
           svc_warn=1
         else
           python3 -m venv "${venv_path}" 2>/dev/null || {
-            log_warn "    venv 创建失败，请手动执行: python3 -m venv ${venv_path}"
+            log_warn "    $(lang_pick "venv 创建失败，请手动执行" "venv creation failed. Run manually"): python3 -m venv ${venv_path}"
             svc_warn=1
           }
           # pip install from freeze
@@ -1918,16 +1918,16 @@ _restore_systemd() {
           if [[ -n "${req_file}" && -x "${venv_path}/bin/pip" ]]; then
             local req_file_prepared="${req_file}.prepared"
             _prepare_python_requirement_file "${req_file}" "${req_file_prepared}" || cp -f "${req_file}" "${req_file_prepared}" 2>/dev/null || true
-            log_info "    安装依赖: $(wc -l < "${req_file_prepared}" 2>/dev/null || echo '?') 个包..."
+            log_info "    $(lang_pick "安装依赖" "Installing dependencies"): $(wc -l < "${req_file_prepared}" 2>/dev/null || echo '?') $(lang_pick "个包" "packages")..."
             "${venv_path}/bin/pip" install --disable-pip-version-check -U pip setuptools wheel >/dev/null 2>&1 || true
             "${venv_path}/bin/pip" install --disable-pip-version-check -r "${req_file_prepared}" 2>/dev/null || {
-              log_warn "    pip install 部分失败，请检查 ${req_file}"
+              log_warn "    $(lang_pick "pip install 部分失败，请检查" "pip install partially failed. Check"): ${req_file}"
               svc_warn=1
             }
           fi
         fi
       else
-        log_warn "    python3 未安装，请先安装后手动重建 venv"
+        log_warn "    $(lang_pick "python3 未安装，请先安装后手动重建 venv" "python3 is not installed. Install it before rebuilding the venv manually")"
         svc_warn=1
       fi
     fi
@@ -1944,12 +1944,12 @@ _restore_systemd() {
       # 恢复启用状态
       systemctl daemon-reload 2>/dev/null || true
       if (( manual_start == 1 )); then
-        log_info "    单实例服务，已恢复但不自动启动: ${svc_name}"
+        log_info "    $(lang_pick "单实例服务，已恢复但不自动启动" "Single-instance service restored but not started automatically"): ${svc_name}"
         ((deferred_count+=1))
       elif [[ "${enabled_state}" == "enabled" ]]; then
         systemctl enable "${svc_name}" 2>/dev/null || true
         systemctl start "${svc_name}" 2>/dev/null || {
-          log_warn "    服务 ${svc_name} 启动失败"
+          log_warn "    $(lang_pick "服务启动失败" "Service failed to start"): ${svc_name}"
           svc_warn=1
         }
       fi
@@ -1973,7 +1973,7 @@ _restore_systemd() {
 
 _restore_reverse_proxy() {
   local mod_dir="$1"
-  log_step "恢复反向代理配置..."
+  log_step "$(lang_pick "恢复反向代理配置..." "Restoring reverse proxy configuration...")"
   local restored_count=0
   local warning_count=0
   local deferred_count=0
@@ -1985,8 +1985,8 @@ _restore_reverse_proxy() {
   if [[ -f "${mod_dir}/nginx/etc_nginx.tar.gz" ]]; then
     _mark_restore_proxy_expected
     _register_restore_proxy_service "nginx"
-    log_info "  恢复 Nginx 配置..."
-    if ! log_dry_run "恢复 Nginx"; then
+    log_info "  $(lang_pick "恢复 Nginx 配置..." "Restoring Nginx configuration...")"
+    if ! log_dry_run "$(lang_pick "恢复 Nginx" "Restore Nginx")"; then
       tar -xzf "${mod_dir}/nginx/etc_nginx.tar.gz" -C /etc 2>/dev/null || true
       enabled_state="$(_read_env_value "${mod_dir}/nginx/status.env" "ENABLED")"
       active_state="$(_read_env_value "${mod_dir}/nginx/status.env" "ACTIVE")"
@@ -2000,16 +2000,16 @@ _restore_reverse_proxy() {
         systemctl enable nginx 2>/dev/null || true
         if ! systemctl is-active nginx >/dev/null 2>&1; then
           systemctl start nginx 2>/dev/null || {
-            log_warn "  Nginx 启动失败，请手动检查"
+            log_warn "  $(lang_pick "Nginx 启动失败，请手动检查" "Failed to start Nginx. Check it manually.")"
             ((warning_count+=1))
           }
         fi
         nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
       elif (( auto_activate_proxy == 1 )); then
-        log_warn "  未发现 Nginx 服务单元，请手动检查"
+        log_warn "  $(lang_pick "未发现 Nginx 服务单元，请手动检查" "Nginx service unit not found. Check it manually.")"
         ((warning_count+=1))
       else
-        log_info "  Nginx 在源机未启用，仅恢复配置"
+        log_info "  $(lang_pick "Nginx 在源机未启用，仅恢复配置" "Nginx was not enabled on the source host. Restored configuration only.")"
         ((deferred_count+=1))
       fi
     fi
@@ -2020,8 +2020,8 @@ _restore_reverse_proxy() {
   if [[ -f "${mod_dir}/caddy/etc_caddy.tar.gz" ]]; then
     _mark_restore_proxy_expected
     _register_restore_proxy_service "caddy"
-    log_info "  恢复 Caddy 配置..."
-    if ! log_dry_run "恢复 Caddy"; then
+    log_info "  $(lang_pick "恢复 Caddy 配置..." "Restoring Caddy configuration...")"
+    if ! log_dry_run "$(lang_pick "恢复 Caddy" "Restore Caddy")"; then
       tar -xzf "${mod_dir}/caddy/etc_caddy.tar.gz" -C /etc 2>/dev/null || true
       enabled_state="$(_read_env_value "${mod_dir}/caddy/status.env" "ENABLED")"
       active_state="$(_read_env_value "${mod_dir}/caddy/status.env" "ACTIVE")"
@@ -2035,16 +2035,16 @@ _restore_reverse_proxy() {
         systemctl enable caddy 2>/dev/null || true
         if ! systemctl is-active caddy >/dev/null 2>&1; then
           systemctl start caddy 2>/dev/null || {
-            log_warn "  Caddy 启动失败，请手动检查"
+            log_warn "  $(lang_pick "Caddy 启动失败，请手动检查" "Failed to start Caddy. Check it manually.")"
             ((warning_count+=1))
           }
         fi
         systemctl reload caddy 2>/dev/null || true
       elif (( auto_activate_proxy == 1 )); then
-        log_warn "  未发现 Caddy 服务单元，请手动检查"
+        log_warn "  $(lang_pick "未发现 Caddy 服务单元，请手动检查" "Caddy service unit not found. Check it manually.")"
         ((warning_count+=1))
       else
-        log_info "  Caddy 在源机未启用，仅恢复配置"
+        log_info "  $(lang_pick "Caddy 在源机未启用，仅恢复配置" "Caddy was not enabled on the source host. Restored configuration only.")"
         ((deferred_count+=1))
       fi
     fi
@@ -2055,8 +2055,8 @@ _restore_reverse_proxy() {
   if [[ -f "${mod_dir}/apache/etc_apache2.tar.gz" ]]; then
     _mark_restore_proxy_expected
     _register_restore_proxy_service "apache2"
-    log_info "  恢复 Apache 配置..."
-    if ! log_dry_run "恢复 Apache"; then
+    log_info "  $(lang_pick "恢复 Apache 配置..." "Restoring Apache configuration...")"
+    if ! log_dry_run "$(lang_pick "恢复 Apache" "Restore Apache")"; then
       tar -xzf "${mod_dir}/apache/etc_apache2.tar.gz" -C /etc 2>/dev/null || true
       enabled_state="$(_read_env_value "${mod_dir}/apache/status.env" "ENABLED")"
       active_state="$(_read_env_value "${mod_dir}/apache/status.env" "ACTIVE")"
@@ -2070,16 +2070,16 @@ _restore_reverse_proxy() {
         systemctl enable apache2 2>/dev/null || true
         if ! systemctl is-active apache2 >/dev/null 2>&1; then
           systemctl start apache2 2>/dev/null || {
-            log_warn "  Apache 启动失败，请手动检查"
+            log_warn "  $(lang_pick "Apache 启动失败，请手动检查" "Failed to start Apache. Check it manually.")"
             ((warning_count+=1))
           }
         fi
         systemctl reload apache2 2>/dev/null || true
       elif (( auto_activate_proxy == 1 )); then
-        log_warn "  未发现 Apache 服务单元，请手动检查"
+        log_warn "  $(lang_pick "未发现 Apache 服务单元，请手动检查" "Apache service unit not found. Check it manually.")"
         ((warning_count+=1))
       else
-        log_info "  Apache 在源机未启用，仅恢复配置"
+        log_info "  $(lang_pick "Apache 在源机未启用，仅恢复配置" "Apache was not enabled on the source host. Restored configuration only.")"
         ((deferred_count+=1))
       fi
     fi
@@ -2087,13 +2087,13 @@ _restore_reverse_proxy() {
   fi
 
   if (( restored_count == 0 )); then
-    summary_add "skip" "恢复反向代理" "未发现可恢复配置"
+    summary_add "skip" "恢复反向代理" "$(lang_pick "未发现可恢复配置" "no restorable configuration found")"
   elif (( warning_count > 0 )); then
-    summary_add "warn" "恢复反向代理" "${restored_count} 项已处理，${warning_count} 项需手动检查"
+    summary_add "warn" "恢复反向代理" "$(lang_pick "${restored_count} 项已处理，${warning_count} 项需手动检查" "${restored_count} entries processed, ${warning_count} require manual review")"
   elif (( deferred_count > 0 )); then
-    summary_add "ok" "恢复反向代理" "${restored_count} 项配置已恢复，${deferred_count} 项未启用"
+    summary_add "ok" "恢复反向代理" "$(lang_pick "${restored_count} 项配置已恢复，${deferred_count} 项未启用" "${restored_count} configurations restored, ${deferred_count} were not enabled")"
   else
-    summary_add "ok" "恢复反向代理" "${restored_count} 项配置已恢复"
+    summary_add "ok" "恢复反向代理" "$(lang_pick "${restored_count} 项配置已恢复" "${restored_count} configurations restored")"
   fi
 }
 
@@ -2145,11 +2145,11 @@ _restore_database() {
 
 _restore_ssl_certs() {
   local mod_dir="$1"
-  log_step "恢复 SSL 证书..."
+  log_step "$(lang_pick "恢复 SSL 证书..." "Restoring SSL certificates...")"
 
   if [[ -f "${mod_dir}/letsencrypt.tar.gz" ]]; then
-    log_info "  恢复 Let's Encrypt..."
-    if ! log_dry_run "恢复 Let's Encrypt"; then
+    log_info "  $(lang_pick "恢复 Let's Encrypt..." "Restoring Let's Encrypt...")"
+    if ! log_dry_run "$(lang_pick "恢复 Let's Encrypt" "Restore Let's Encrypt")"; then
       tar -xzf "${mod_dir}/letsencrypt.tar.gz" -C /etc 2>/dev/null || true
     fi
   fi
@@ -2160,8 +2160,8 @@ _restore_ssl_certs() {
       local safe_name
       safe_name="acme_$(echo "${acme_path}" | tr '/' '_' | sed 's/^_//')"
       if [[ -f "${mod_dir}/${safe_name}.tar.gz" ]]; then
-        log_info "  恢复 acme.sh: ${acme_path}"
-        if ! log_dry_run "恢复 acme.sh"; then
+        log_info "  $(lang_pick "恢复 acme.sh" "Restoring acme.sh"): ${acme_path}"
+        if ! log_dry_run "$(lang_pick "恢复 acme.sh" "Restore acme.sh")"; then
           safe_mkdir "$(dirname "${acme_path}")"
           tar -xzf "${mod_dir}/${safe_name}.tar.gz" -C "$(dirname "${acme_path}")" 2>/dev/null || true
         fi
@@ -2169,21 +2169,21 @@ _restore_ssl_certs() {
     done < "${mod_dir}/_acme_paths.txt"
   fi
 
-  summary_add "ok" "恢复 SSL" "证书已恢复"
+  summary_add "ok" "恢复 SSL" "$(lang_pick "证书已恢复" "certificates restored")"
 }
 
 _restore_crontab() {
   local mod_dir="$1"
-  log_step "恢复 Crontab..."
+  log_step "$(lang_pick "恢复 Crontab..." "Restoring crontab...")"
 
   for cron_file in "${mod_dir}"/user_*.crontab; do
     [[ -f "${cron_file}" ]] || continue
     local username
     username="$(basename "${cron_file}" .crontab | sed 's/^user_//')"
-    log_info "  恢复 ${username} 的 crontab"
-    if ! log_dry_run "恢复 crontab: ${username}"; then
+    log_info "  $(lang_pick "恢复 ${username} 的 crontab" "Restoring ${username}'s crontab")"
+    if ! log_dry_run "$(lang_pick "恢复 crontab" "Restore crontab"): ${username}"; then
       crontab -u "${username}" "${cron_file}" 2>/dev/null || {
-        log_warn "    ${username} 的 crontab 恢复失败"
+        log_warn "    $(lang_pick "${username} 的 crontab 恢复失败" "Failed to restore ${username}'s crontab")"
       }
     fi
   done
@@ -2193,80 +2193,80 @@ _restore_crontab() {
     [[ -f "${cron_archive}" ]] || continue
     local dir_name
     dir_name="$(basename "${cron_archive}" .tar.gz)"
-    log_info "  恢复系统 cron: ${dir_name}"
-    if ! log_dry_run "恢复 ${dir_name}"; then
+    log_info "  $(lang_pick "恢复系统 cron" "Restoring system cron"): ${dir_name}"
+    if ! log_dry_run "$(lang_pick "恢复" "Restore"): ${dir_name}"; then
       tar -xzf "${cron_archive}" -C /etc 2>/dev/null || true
     fi
   done
 
   # /etc/crontab
   if [[ -f "${mod_dir}/crontab" ]]; then
-    if ! log_dry_run "恢复 /etc/crontab"; then
+    if ! log_dry_run "$(lang_pick "恢复 /etc/crontab" "Restore /etc/crontab")"; then
       cp -a "${mod_dir}/crontab" /etc/crontab 2>/dev/null || true
     fi
   fi
 
-  summary_add "ok" "恢复 Crontab" "已恢复"
+  summary_add "ok" "恢复 Crontab" "$(lang_pick "已恢复" "restored")"
 }
 
 _restore_firewall() {
   local mod_dir="$1"
-  log_step "恢复防火墙规则..."
+  log_step "$(lang_pick "恢复防火墙规则..." "Restoring firewall rules...")"
 
   if [[ -f "${mod_dir}/iptables.rules" ]]; then
-    log_info "  恢复 iptables 规则"
-    if ! log_dry_run "恢复 iptables"; then
+    log_info "  $(lang_pick "恢复 iptables 规则" "Restoring iptables rules")"
+    if ! log_dry_run "$(lang_pick "恢复 iptables" "Restore iptables")"; then
       iptables-restore < "${mod_dir}/iptables.rules" 2>/dev/null || true
     fi
   fi
 
   if [[ -f "${mod_dir}/ip6tables.rules" ]]; then
-    if ! log_dry_run "恢复 ip6tables"; then
+    if ! log_dry_run "$(lang_pick "恢复 ip6tables" "Restore ip6tables")"; then
       ip6tables-restore < "${mod_dir}/ip6tables.rules" 2>/dev/null || true
     fi
   fi
 
   if [[ -d "${mod_dir}" ]] && ls "${mod_dir}/etc_ufw.tar.gz" >/dev/null 2>&1; then
-    log_info "  恢复 UFW 配置"
-    if ! log_dry_run "恢复 UFW"; then
+    log_info "  $(lang_pick "恢复 UFW 配置" "Restoring UFW configuration")"
+    if ! log_dry_run "$(lang_pick "恢复 UFW" "Restore UFW")"; then
       tar -xzf "${mod_dir}/etc_ufw.tar.gz" -C /etc 2>/dev/null || true
       ufw reload 2>/dev/null || true
     fi
   fi
 
   if [[ -f "${mod_dir}/nftables.rules" ]]; then
-    log_info "  恢复 nftables 规则"
-    if ! log_dry_run "恢复 nftables"; then
+    log_info "  $(lang_pick "恢复 nftables 规则" "Restoring nftables rules")"
+    if ! log_dry_run "$(lang_pick "恢复 nftables" "Restore nftables")"; then
       nft -f "${mod_dir}/nftables.rules" 2>/dev/null || true
     fi
   fi
 
   if ls "${mod_dir}/etc_firewalld.tar.gz" >/dev/null 2>&1; then
-    log_info "  恢复 firewalld"
-    if ! log_dry_run "恢复 firewalld"; then
+    log_info "  $(lang_pick "恢复 firewalld" "Restoring firewalld")"
+    if ! log_dry_run "$(lang_pick "恢复 firewalld" "Restore firewalld")"; then
       tar -xzf "${mod_dir}/etc_firewalld.tar.gz" -C /etc 2>/dev/null || true
       systemctl reload firewalld 2>/dev/null || true
     fi
   fi
 
   if ls "${mod_dir}/etc_fail2ban.tar.gz" >/dev/null 2>&1; then
-    log_info "  恢复 fail2ban"
-    if ! log_dry_run "恢复 fail2ban"; then
+    log_info "  $(lang_pick "恢复 fail2ban" "Restoring fail2ban")"
+    if ! log_dry_run "$(lang_pick "恢复 fail2ban" "Restore fail2ban")"; then
       tar -xzf "${mod_dir}/etc_fail2ban.tar.gz" -C /etc 2>/dev/null || true
       systemctl restart fail2ban 2>/dev/null || true
     fi
   fi
 
-  if ! log_dry_run "保留 SSH 访问"; then
+  if ! log_dry_run "$(lang_pick "保留 SSH 访问" "Preserve SSH access")"; then
     _preserve_ssh_access_after_firewall_restore
   fi
 
-  summary_add "ok" "恢复防火墙" "规则已恢复"
+  summary_add "ok" "恢复防火墙" "$(lang_pick "规则已恢复" "rules restored")"
 }
 
 _restore_user_home() {
   local mod_dir="$1"
-  log_step "恢复用户目录..."
+  log_step "$(lang_pick "恢复用户目录..." "Restoring user homes...")"
   local restored_users=0
   local restored_files=0
 
@@ -2292,9 +2292,9 @@ _restore_user_home() {
 
     if [[ -z "${home}" ]]; then continue; fi
 
-    log_info "  恢复用户: ${username} -> ${home}"
+    log_info "  $(lang_pick "恢复用户" "Restoring user"): ${username} -> ${home}"
 
-    if log_dry_run "恢复用户目录: ${username}"; then continue; fi
+    if log_dry_run "$(lang_pick "恢复用户目录" "Restore user home"): ${username}"; then continue; fi
 
     safe_mkdir "${home}"
 
@@ -2305,7 +2305,7 @@ _restore_user_home() {
       if [[ -n "${rel}" ]]; then
         local target="${home}/${rel}"
         if [[ "${rel}" == ".ssh/authorized_keys" ]]; then
-          log_info "    保留当前 authorized_keys: ${target}"
+          log_info "    $(lang_pick "保留当前 authorized_keys" "Keeping current authorized_keys"): ${target}"
           continue
         fi
         safe_mkdir "$(dirname "${target}")"
@@ -2326,9 +2326,9 @@ _restore_user_home() {
   done
 
   if (( restored_users == 0 )); then
-    summary_add "skip" "恢复用户目录" "未发现可恢复用户"
+    summary_add "skip" "恢复用户目录" "$(lang_pick "未发现可恢复用户" "no restorable users found")"
   else
-    summary_add "ok" "恢复用户目录" "${restored_users} 个用户，${restored_files} 个文件"
+    summary_add "ok" "恢复用户目录" "$(lang_pick "${restored_users} 个用户，${restored_files} 个文件" "${restored_users} users, ${restored_files} files")"
   fi
 }
 
