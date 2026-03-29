@@ -98,6 +98,7 @@ collect_docker_compose() {
 
   safe_mkdir "${target_dir}"
   local count=0
+  local total_services=0
 
   for proj_path in "${projects[@]}"; do
     if [[ ! -d "${proj_path}" ]]; then
@@ -129,6 +130,10 @@ collect_docker_compose() {
     else
       log_info "  $(lang_pick "备份项目" "Backing up project"): ${compose_project_name} (${proj_path}) -> ${backup_key}"
     fi
+
+    local project_services=0
+    project_services="$(cd "${proj_path}" && docker compose config --services 2>/dev/null | awk 'NF {count+=1} END {print count+0}')"
+    total_services=$(( total_services + project_services ))
 
     if log_dry_run "$(lang_pick "备份 Docker Compose 项目: ${proj_path}" "Back up Docker Compose project: ${proj_path}")"; then
       ((count+=1))
@@ -230,6 +235,17 @@ collect_docker_compose() {
     ((count+=1))
   done
 
-  log_success "$(lang_pick "Docker Compose: 已备份 ${count} 个项目" "Docker Compose: backed up ${count} projects")"
-  summary_add "ok" "Docker Compose" "${count} 个项目"
+  local zh_project_label="个项目"
+  local zh_service_label="个服务"
+  local en_project_label="projects"
+  local en_service_label="services"
+  (( count == 1 )) && en_project_label="project"
+  (( total_services == 1 )) && en_service_label="service"
+
+  log_success "$(lang_pick \
+    "Docker Compose: 已备份 ${count}${zh_project_label}，共 ${total_services}${zh_service_label}" \
+    "Docker Compose: backed up ${count} ${en_project_label}, ${total_services} ${en_service_label} total")"
+  summary_add "ok" "Docker Compose" "$(lang_pick \
+    "${count} 个项目，共 ${total_services} 个服务" \
+    "${count} ${en_project_label}, ${total_services} ${en_service_label} total")"
 }
