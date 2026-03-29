@@ -73,13 +73,26 @@ More English task-by-task documentation can be added under `docs/en/` as the use
   - [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
 - If you want to configure local-only, single-remote, or dual-remote mode:
   - [Configuration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/configuration.md)
+- If you want to understand standard backup behavior:
+  - [Backup](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/backup.md)
 - If you are preparing to restore on a target machine:
   - [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
+- If you want the workload suitability view first:
+  - [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
+- If you plan to use migration or scheduled backups:
+  - [Migration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/migrate.md)
+  - [Scheduled Backups](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/schedule.md)
+- If you are already in a failure path:
+  - [Troubleshooting](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/troubleshooting.md)
+- If you want the current recovery-grade summary:
+  - [Capability Matrix](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/capability-matrix.md)
 
 ## Suggested reading order
 
 1. [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
 2. [Quick Start](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/quickstart.md)
 3. [Configuration](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/configuration.md)
-4. [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
-5. [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
+4. [Backup](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/backup.md)
+5. [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
+6. [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
+7. [Capability Matrix](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/capability-matrix.md)
