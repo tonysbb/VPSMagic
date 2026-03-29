@@ -17,6 +17,7 @@
 - 你遇到了错误或恢复结果不符合预期：看 [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 - 你不确定自己的 VPS 属于哪一类：看 [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 - 你想看一轮真实空机远端恢复是否已经验证通过：看 [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
+- 你想快速了解当前版本到底已经验收到什么程度：看 [最终验收结论](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/最终验收结论.md)
 
 ## 三条最短路径
 
@@ -58,6 +59,7 @@
 10. [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
 11. [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 12. [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
+13. [最终验收结论](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/最终验收结论.md)
 
 ## 第一次使用时你可以先不关心
 

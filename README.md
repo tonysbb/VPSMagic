@@ -201,6 +201,7 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 - [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
 - [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
 - [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
+- [最终验收结论](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/最终验收结论.md)
 
 English docs:
 
