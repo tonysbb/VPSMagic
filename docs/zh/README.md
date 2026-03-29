@@ -36,7 +36,13 @@ bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env
 
 ```bash
 bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env --format json
+bash vpsmagic.sh status --config /opt/vpsmagic/config.env --format json
 ```
+
+用途上略有区别：
+
+- `doctor --format json` 更适合恢复前判断与风险评估
+- `status --format json` 更适合读取当前状态、配置状态与备份概览
 
 ## 三条最短路径
 

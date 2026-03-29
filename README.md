@@ -48,7 +48,13 @@ bash vpsmagic.sh doctor
 
 ```bash
 bash vpsmagic.sh doctor --format json
+bash vpsmagic.sh status --format json
 ```
+
+其中：
+
+- `doctor --format json` 更适合恢复前判断与风险评估
+- `status --format json` 更适合读取当前机器状态、配置状态和本地/远端备份概览
 
 建议顺序始终是：
 

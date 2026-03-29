@@ -67,7 +67,9 @@ The following sequence has been validated on a genuinely empty target host:
   - risk level
   - blocking items
   - caution items
-- it also supports `doctor --format json` for structured output
+- it also supports structured output for:
+  - `doctor --format json`
+  - `status --format json`
 
 ### 3. Remote restore prerequisite checks
 
@@ -112,6 +114,9 @@ The following sequence has been validated on a genuinely empty target host:
 - the `Docker Compose` summary now shows:
   - project count
   - service count
+- structured output is now available for:
+  - `doctor --format json`
+  - `status --format json`
 
 ## Product Boundaries That Are Now Explicit
 
@@ -162,8 +167,7 @@ By maturity level:
 ## Suggested Next-Phase Work
 
 1. continue to unify the config template and documentation entry points
-2. add a more automation-friendly structured output path for `doctor`
+2. continue expanding automation-friendly structured output around `doctor` and `status`
 3. later consider more advanced productization items such as:
-   - `doctor --format json`
    - more formal risk grading
    - a more complete acceptance matrix

@@ -26,7 +26,13 @@ If you want to feed the result into automation, you can also use:
 
 ```bash
 bash vpsmagic.sh doctor --format json
+bash vpsmagic.sh status --format json
 ```
+
+Use them for slightly different purposes:
+
+- `doctor --format json`: pre-restore classification and risk assessment
+- `status --format json`: current machine, configuration, and backup overview
 
 ## Recommended first path
 
