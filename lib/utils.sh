@@ -254,6 +254,53 @@ get_primary_ip() {
   echo "${ip:-unknown}"
 }
 
+# ---------- rclone 工具 ----------
+vpsmagic_extract_rclone_remote_name() {
+  local remote_target="$1"
+  printf '%s\n' "${remote_target%%:*}"
+}
+
+vpsmagic_rclone_remote_backend_type() {
+  local remote_name="$1"
+  shift
+
+  [[ -n "${remote_name}" ]] || return 1
+  command -v rclone >/dev/null 2>&1 || return 1
+
+  local remote_cfg=""
+  remote_cfg="$(rclone "$@" config show "${remote_name}" 2>/dev/null || true)"
+  awk -F '=' '
+    /^[[:space:]]*type[[:space:]]*=/ {
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2)
+      print $2
+      exit
+    }
+  ' <<< "${remote_cfg}"
+}
+
+vpsmagic_rclone_backend_supported() {
+  local backend="$1"
+  shift
+
+  [[ -n "${backend}" ]] || return 1
+  command -v rclone >/dev/null 2>&1 || return 1
+
+  rclone "$@" help backends 2>/dev/null | awk '{print $1}' | grep -Fxq "${backend}"
+}
+
+vpsmagic_remote_uses_oci_credentials() {
+  local remote_name="$1"
+  shift
+
+  if [[ "${remote_name}" =~ ^([Oo][Oo][Ss]|oci|oracle) ]]; then
+    return 0
+  fi
+
+  local backend_type=""
+  backend_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" "$@" 2>/dev/null || true)"
+  [[ "${backend_type}" == "oracleobjectstorage" ]]
+}
+
 relative_child_path() {
   local base_dir="$1"
   local child_path="$2"

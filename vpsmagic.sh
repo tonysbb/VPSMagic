@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.8               ║
+  ║          VPS Magic Backup  v1.0.9               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.8               ║
+  ║          VPS Magic Backup  v1.0.9               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -711,6 +711,7 @@ run_doctor() {
   local has_docker_compose=0
   local has_rclone=0
   local has_oci_config=0
+  local has_oci_backend_support=1
   local risk_score=1
   local recommendation=""
   local further_reading_path=""
@@ -744,8 +745,17 @@ run_doctor() {
     get_restore_targets configured_restore_targets
     local configured_target=""
     for configured_target in "${configured_restore_targets[@]}"; do
-      if [[ "${configured_target}" == OOS:* || "${configured_target}" == oos:* ]]; then
+      local remote_name=""
+      remote_name="$(vpsmagic_extract_rclone_remote_name "${configured_target}")"
+      if [[ "${configured_target}" == OOS:* || "${configured_target}" == oos:* ]] || vpsmagic_remote_uses_oci_credentials "${remote_name}" 2>/dev/null; then
         requires_oci_credentials=1
+        if (( has_rclone == 1 )); then
+          local backend_type=""
+          backend_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" 2>/dev/null || true)"
+          if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}"; then
+            has_oci_backend_support=0
+          fi
+        fi
       else
         has_non_oci_target=1
       fi
@@ -760,13 +770,23 @@ run_doctor() {
       blocking_items+=("$(lang_pick "当前已配置远端恢复，但 rclone 里还没有可用 remote" "Remote restore is configured, but no usable rclone remotes are available yet")")
       risk_score=3
     fi
-    if (( requires_oci_credentials == 1 )) && (( has_oci_config == 0 )); then
-      if (( has_non_oci_target == 1 )); then
-        caution_items+=("$(lang_pick "OCI 主目标当前不可用；如已配置其他远端，可先走备用远端或本地恢复" "The OCI primary target is not ready; if another remote is configured, use the fallback remote or local restore first")")
-        (( risk_score < 2 )) && risk_score=2
-      else
-        blocking_items+=("$(lang_pick "当前远端路径依赖 OCI，但目标机缺少 /root/.oci/config" "The configured remote path depends on OCI, but /root/.oci/config is missing on this host")")
-        risk_score=3
+    if (( requires_oci_credentials == 1 )); then
+      if (( has_oci_backend_support == 0 )); then
+        if (( has_non_oci_target == 1 )); then
+          caution_items+=("$(lang_pick "OCI 主目标当前不可用；当前 rclone 不支持 oracleobjectstorage backend，可先走备用远端或本地恢复" "The OCI primary target is not ready; the current rclone build does not support the oracleobjectstorage backend, so use the fallback remote or local restore first")")
+          (( risk_score < 2 )) && risk_score=2
+        else
+          blocking_items+=("$(lang_pick "当前远端路径依赖 OCI，但当前 rclone 不支持 oracleobjectstorage backend" "The configured remote path depends on OCI, but the current rclone build does not support the oracleobjectstorage backend")")
+          risk_score=3
+        fi
+      elif (( has_oci_config == 0 )); then
+        if (( has_non_oci_target == 1 )); then
+          caution_items+=("$(lang_pick "OCI 主目标当前不可用；如已配置其他远端，可先走备用远端或本地恢复" "The OCI primary target is not ready; if another remote is configured, use the fallback remote or local restore first")")
+          (( risk_score < 2 )) && risk_score=2
+        else
+          blocking_items+=("$(lang_pick "当前远端路径依赖 OCI，但目标机缺少 /root/.oci/config" "The configured remote path depends on OCI, but /root/.oci/config is missing on this host")")
+          risk_score=3
+        fi
       fi
     fi
   else
@@ -840,12 +860,12 @@ run_doctor() {
     else
       adoption_steps+=("$(lang_pick "先执行一次远端恢复前置检查，再决定走主远端还是备用远端" "Run one remote restore preflight first, then decide whether to use the primary or fallback remote")")
     fi
-    if (( requires_oci_credentials == 1 )) && (( has_oci_config == 0 )); then
+    if (( requires_oci_credentials == 1 )) && (( has_oci_backend_support == 0 )); then
+      adoption_steps+=("$(lang_pick "如需使用 OCI 主目标，请先安装支持 oracleobjectstorage backend 的 rclone；否则可回退到其他已配置远端或 restore --local" "If you want to use the OCI primary target, install an rclone build with oracleobjectstorage backend support first; otherwise use another configured remote or restore --local")")
+    elif (( requires_oci_credentials == 1 )) && (( has_oci_config == 0 )); then
       adoption_steps+=("$(lang_pick "如需使用 OCI 主目标，还需准备 /root/.oci/config；否则可回退到其他已配置远端或 restore --local" "If you want to use the OCI primary target, also prepare /root/.oci/config; otherwise use another configured remote or restore --local")")
-      adoption_steps+=("$(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")")
-    else
-      adoption_steps+=("$(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")")
     fi
+    adoption_steps+=("$(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")")
   elif (( remote_count == 0 )); then
     adoption_steps+=("$(lang_pick "先执行本地模式初始化: vpsmagic init" "Start with local-only init: vpsmagic init")")
     adoption_steps+=("$(lang_pick "先跑通本地备份 + 本地恢复演练" "First complete local backup + local restore rehearsal")")
@@ -1127,25 +1147,21 @@ run_init() {
 
     case "${remote_mode}" in
       webdav)
-        echo
         echo "  $(lang_pick "示例格式:" "Example format:") openlist_webdav:backup/{hostname}"
         echo "  $(lang_pick "如果你只有一个 WebDAV/OpenList remote，可以先只填一个完整路径。" "If you only have one WebDAV/OpenList remote, start with a single full path.")"
         read_with_default backup_targets "$(lang_pick "请输入 WebDAV/OpenList 备份目标" "Enter the WebDAV/OpenList backup target")" "openlist_webdav:backup/{hostname}"
         ;;
       s3)
-        echo
         echo "  $(lang_pick "示例格式:" "Example format:") s3:mybucket/vpsmagic/{hostname}"
         echo "  $(lang_pick "如果你使用 OCI / R2，也属于这一类，只是 remote 名称不同。" "OCI and R2 also belong to this category; only the remote name differs.")"
         read_with_default backup_targets "$(lang_pick "请输入 S3 兼容备份目标" "Enter the S3-compatible backup target")" "s3:mybucket/vpsmagic/{hostname}"
         ;;
       drive)
-        echo
         echo "  $(lang_pick "示例格式:" "Example format:") gdrive:VPSMagicBackup/{hostname}"
         echo "  $(lang_pick "如果你用 OneDrive，也可以填 onedrive:VPSMagicBackup/{hostname}" "If you use OneDrive, you can also use onedrive:VPSMagicBackup/{hostname}")"
         read_with_default backup_targets "$(lang_pick "请输入网盘备份目标" "Enter the cloud drive backup target")" "gdrive:VPSMagicBackup/{hostname}"
         ;;
       manual)
-        echo
         echo "  $(lang_pick "支持 {hostname} 占位符，例如 OOS:mybucket/vpsmagic/{hostname}" "The {hostname} placeholder is supported, for example OOS:mybucket/vpsmagic/{hostname}")"
         echo "  $(lang_pick "也可以输入多个完整路径，逗号分隔，按顺序尝试。" "You can also enter multiple full paths separated by commas.")"
         read_with_default backup_targets "$(lang_pick "请输入备份目标列表" "Enter backup targets")" ""
@@ -1307,9 +1323,13 @@ EOF
     local tg_chat=""
     read_with_default tg_token "Telegram Bot Token" ""
     read_with_default tg_chat "Telegram Chat ID" ""
-    config_content="$(echo "${config_content}" | sed 's/NOTIFY_ENABLED=false/NOTIFY_ENABLED=true/')"
-    config_content="$(echo "${config_content}" | sed "s|# TG_BOT_TOKEN=\"\"|TG_BOT_TOKEN=\"${tg_token}\"|")"
-    config_content="$(echo "${config_content}" | sed "s|# TG_CHAT_ID=\"\"|TG_CHAT_ID=\"${tg_chat}\"|")"
+    if [[ -n "${tg_token}" && -n "${tg_chat}" ]]; then
+      config_content="$(echo "${config_content}" | sed 's/NOTIFY_ENABLED=false/NOTIFY_ENABLED=true/')"
+      config_content="$(echo "${config_content}" | sed "s|# TG_BOT_TOKEN=\"\"|TG_BOT_TOKEN=\"${tg_token}\"|")"
+      config_content="$(echo "${config_content}" | sed "s|# TG_CHAT_ID=\"\"|TG_CHAT_ID=\"${tg_chat}\"|")"
+    else
+      log_warn "$(lang_pick "Telegram 通知已跳过：Bot Token 或 Chat ID 为空，已保持禁用状态。" "Telegram notifications were skipped: Bot Token or Chat ID is empty, so notifications remain disabled.")"
+    fi
   fi
 
   echo "${config_content}" > "${target_config}"

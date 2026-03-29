@@ -914,8 +914,7 @@ _read_remote_archive_checksum() {
 }
 
 _extract_rclone_remote_name() {
-  local target="${1:-}"
-  printf '%s\n' "${target%%:*}"
+  vpsmagic_extract_rclone_remote_name "${1:-}"
 }
 
 _rclone_remote_exists() {
@@ -932,14 +931,7 @@ _rclone_remote_exists() {
 _remote_uses_oci_credentials() {
   local remote_name="$1"
   shift
-
-  if [[ "${remote_name}" =~ ^([Oo][Oo][Ss]|oci|oracle) ]]; then
-    return 0
-  fi
-
-  local remote_cfg=""
-  remote_cfg="$(rclone "$@" config show "${remote_name}" 2>/dev/null || true)"
-  grep -Eqi 'provider[[:space:]]*=[[:space:]]*oci|namespace[[:space:]]*=' <<< "${remote_cfg}"
+  vpsmagic_remote_uses_oci_credentials "${remote_name}" "$@"
 }
 
 _preflight_restore_remote_target() {
@@ -958,6 +950,13 @@ _preflight_restore_remote_target() {
   if ! _rclone_remote_exists "${remote_name}" "${rclone_opts[@]}"; then
     local conf_path="${RCLONE_CONF:-${HOME}/.config/rclone/rclone.conf}"
     printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})$(lang_pick "。请先复制源机的 rclone.conf，或在目标机运行 rclone config，无法满足时改用 restore --local。" ". Copy the source host rclone.conf first, or run rclone config on the target host. If that is not possible, use restore --local instead.")"
+    return 1
+  fi
+
+  local backend_type=""
+  backend_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
+  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
+    printf -v "${err_var}" '%s' "$(lang_pick "当前 rclone 不支持该远端 backend" "the current rclone build does not support this remote backend"): ${remote_name} (type=${backend_type})$(lang_pick "。请安装支持该 backend 的 rclone，或改用其他远端 / restore --local。" ". Install an rclone build that supports this backend, or use another remote / restore --local.")"
     return 1
   fi
 
