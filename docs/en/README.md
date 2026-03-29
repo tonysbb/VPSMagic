@@ -93,6 +93,8 @@ More English task-by-task documentation can be added under `docs/en/` as the use
   - [Troubleshooting](./troubleshooting.md)
 - If you want the current recovery-grade summary:
   - [Capability Matrix](./capability-matrix.md)
+- If you want the high-level acceptance status of the current version:
+  - [Final Acceptance Summary](./final-acceptance-summary.md)
 
 ## Suggested reading order
 
@@ -104,3 +106,4 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 6. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
 7. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
 8. [Capability Matrix](./capability-matrix.md)
+9. [Final Acceptance Summary](./final-acceptance-summary.md)

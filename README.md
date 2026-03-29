@@ -207,6 +207,7 @@ English docs:
 
 - [English docs overview](docs/en/README.md)
 - [Real empty-host remote restore acceptance](docs/en/real-empty-host-remote-restore-acceptance.md)
+- [Final acceptance summary](docs/en/final-acceptance-summary.md)
 
 ## 当前已落地能力
 
