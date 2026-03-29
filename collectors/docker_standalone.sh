@@ -15,7 +15,7 @@ collect_docker_standalone() {
     return 0
   fi
 
-  log_step "采集独立 Docker 容器..."
+  log_step "$(lang_pick "采集独立 Docker 容器..." "Collecting standalone Docker containers...")"
 
   # 获取所有容器（排除属于 compose 项目的）
   local -a standalone_ids=()
@@ -31,7 +31,7 @@ collect_docker_standalone() {
   done < <(docker ps -aq 2>/dev/null)
 
   if [[ ${#standalone_ids[@]} -eq 0 ]]; then
-    log_info "未发现独立 Docker 容器。"
+    log_info "$(lang_pick "未发现独立 Docker 容器。" "No standalone Docker containers found.")"
     summary_add "skip" "独立容器" "无独立容器"
     return 0
   fi
@@ -47,9 +47,9 @@ collect_docker_standalone() {
     local container_dir="${target_dir}/${name}"
     safe_mkdir "${container_dir}"
 
-    log_info "  备份容器: ${name}"
+    log_info "  $(lang_pick "备份容器" "Backing up container"): ${name}"
 
-    if log_dry_run "备份独立容器: ${name}"; then
+    if log_dry_run "$(lang_pick "备份独立容器: ${name}" "Back up standalone container: ${name}")"; then
       ((count+=1))
       continue
     fi
@@ -100,7 +100,7 @@ collect_docker_standalone() {
         local safe_name
         safe_name="$(echo "${mdst}" | tr '/' '_' | sed 's/^_//')"
         tar -czf "${vol_dir}/${safe_name}.tar.gz" -C "${msrc}" . 2>/dev/null || {
-          log_warn "    卷数据备份失败: ${msrc}"
+          log_warn "    $(lang_pick "卷数据备份失败" "Volume data backup failed"): ${msrc}"
         }
       fi
     done < <(docker inspect "${cid}" --format '{{ range .Mounts }}{{ .Type }}:{{ .Source }}:{{ .Destination }}{{ printf "\n" }}{{ end }}' 2>/dev/null)
@@ -108,6 +108,6 @@ collect_docker_standalone() {
     ((count+=1))
   done
 
-  log_success "独立容器: 已备份 ${count} 个"
+  log_success "$(lang_pick "独立容器: 已备份 ${count} 个" "Standalone containers: backed up ${count}")"
   summary_add "ok" "独立容器" "${count} 个容器"
 }

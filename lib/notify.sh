@@ -12,7 +12,7 @@ _tg_send() {
   local parse_mode="${2:-Markdown}"
 
   if [[ -z "${TG_BOT_TOKEN:-}" || -z "${TG_CHAT_ID:-}" ]]; then
-    log_debug "Telegram 未配置，跳过通知。"
+    log_debug "$(lang_pick "Telegram 未配置，跳过通知。" "Telegram is not configured. Skipping notification.")"
     return 0
   fi
 
@@ -29,10 +29,10 @@ _tg_send() {
   http_code="$(echo "${response}" | tail -1)"
 
   if [[ "${http_code}" == "200" ]]; then
-    log_debug "Telegram 通知发送成功"
+    log_debug "$(lang_pick "Telegram 通知发送成功" "Telegram notification sent successfully")"
     return 0
   else
-    log_warn "Telegram 通知发送失败 (HTTP ${http_code})"
+    log_warn "$(lang_pick "Telegram 通知发送失败" "Telegram notification failed") (HTTP ${http_code})"
     return 1
   fi
 }
@@ -55,7 +55,8 @@ notify_backup_result() {
   local elapsed="${2:-unknown}"
   local backup_file="${3:-unknown}"
 
-  local message="🖥️ *VPS Magic Backup Report*
+  local message
+  message="$(lang_pick "🖥️ *VPS Magic Backup Report*
 ━━━━━━━━━━━━━━━━━━━━
 🏷 主机: \`${hostname}\`
 📅 时间: \`${timestamp}\`
@@ -64,14 +65,25 @@ notify_backup_result() {
 📄 文件: \`$(basename "${backup_file}")\`
 ━━━━━━━━━━━━━━━━━━━━
 
-${summary}"
+${summary}" "🖥️ *VPS Magic Backup Report*
+━━━━━━━━━━━━━━━━━━━━
+🏷 Host: \`${hostname}\`
+📅 Time: \`${timestamp}\`
+📦 Size: \`${archive_size}\`
+⏱ Elapsed: \`${elapsed}\`
+📄 File: \`$(basename "${backup_file}")\`
+━━━━━━━━━━━━━━━━━━━━
+
+${summary}")"
 
   local error_count
   error_count="$(summary_get_error_count)"
   if (( error_count > 0 )); then
-    message+="
+    message+="$(lang_pick "
 
-⚠️ *有 ${error_count} 个错误，请检查日志!*"
+⚠️ *有 ${error_count} 个错误，请检查日志!*" "
+
+⚠️ *${error_count} error(s) detected. Please check the logs.*")"
   fi
 
   _tg_send "${message}"
@@ -93,7 +105,8 @@ notify_restore_result() {
   local summary
   summary="$(summary_render)"
 
-  local message="🔄 *VPS Magic Restore Report*
+  local message
+  message="$(lang_pick "🔄 *VPS Magic Restore Report*
 ━━━━━━━━━━━━━━━━━━━━
 🏷 主机: \`${hostname}\`
 📅 时间: \`${timestamp}\`
@@ -101,7 +114,15 @@ notify_restore_result() {
 ⏱ 耗时: \`${elapsed}\`
 ━━━━━━━━━━━━━━━━━━━━
 
-${summary}"
+${summary}" "🔄 *VPS Magic Restore Report*
+━━━━━━━━━━━━━━━━━━━━
+🏷 Host: \`${hostname}\`
+📅 Time: \`${timestamp}\`
+📦 Restored from: \`${backup_name}\`
+⏱ Elapsed: \`${elapsed}\`
+━━━━━━━━━━━━━━━━━━━━
+
+${summary}")"
 
   _tg_send "${message}"
 }
@@ -130,15 +151,17 @@ notify_migrate_result() {
   local elapsed="${3:-unknown}"
   local skip_restore="${4:-0}"
 
-  local mode_str="完整迁移 (已恢复)"
+  local mode_str
+  mode_str="$(lang_pick "完整迁移 (已恢复)" "full migration (restored)")"
   if [[ "${skip_restore}" == "1" ]]; then
-    mode_str="仅推送 (未恢复)"
+    mode_str="$(lang_pick "仅推送 (未恢复)" "push only (not restored)")"
   fi
 
   local summary
   summary="$(summary_render)"
 
-  local message="🚀 *VPS Magic Migration Report*
+  local message
+  message="$(lang_pick "🚀 *VPS Magic Migration Report*
 ━━━━━━━━━━━━━━━━━━━━
 🏷 源主机: \`${hostname}\`
 🎯 目标机: \`${target_host}\`
@@ -148,7 +171,17 @@ notify_migrate_result() {
 📋 模式: \`${mode_str}\`
 ━━━━━━━━━━━━━━━━━━━━
 
-${summary}"
+${summary}" "🚀 *VPS Magic Migration Report*
+━━━━━━━━━━━━━━━━━━━━
+🏷 Source host: \`${hostname}\`
+🎯 Target host: \`${target_host}\`
+📅 Time: \`${timestamp}\`
+📦 Size: \`${archive_size}\`
+⏱ Elapsed: \`${elapsed}\`
+📋 Mode: \`${mode_str}\`
+━━━━━━━━━━━━━━━━━━━━
+
+${summary}")"
 
   _tg_send "${message}"
 }

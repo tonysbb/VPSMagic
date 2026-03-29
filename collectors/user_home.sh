@@ -10,13 +10,13 @@ collect_user_home() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/user_home"
 
-  log_step "采集用户目录..."
+  log_step "$(lang_pick "采集用户目录..." "Collecting user home directories...")"
 
   local -a users=()
   parse_list "${BACKUP_USERS:-root}" users
 
   if [[ ${#users[@]} -eq 0 ]]; then
-    log_info "未配置需要备份的用户。"
+    log_info "$(lang_pick "未配置需要备份的用户。" "No users configured for backup.")"
     summary_add "skip" "用户目录" "未配置"
     return 0
   fi
@@ -35,13 +35,13 @@ collect_user_home() {
     fi
 
     if [[ -z "${home_dir}" || ! -d "${home_dir}" ]]; then
-      log_warn "  用户 ${username} 的 home 目录不存在: ${home_dir:-unknown}"
+      log_warn "  $(lang_pick "用户" "User") ${username} $(lang_pick "的 home 目录不存在" "home directory does not exist"): ${home_dir:-unknown}"
       continue
     fi
 
-    log_info "  备份用户目录: ${username} (${home_dir})"
+    log_info "  $(lang_pick "备份用户目录" "Backing up user home"): ${username} (${home_dir})"
 
-    if log_dry_run "备份用户目录: ${home_dir}"; then
+    if log_dry_run "$(lang_pick "备份用户目录: ${home_dir}" "Back up user home: ${home_dir}")"; then
       ((count+=1))
       continue
     fi
@@ -100,7 +100,7 @@ collect_user_home() {
   done
 
   if (( count > 0 )); then
-    log_success "用户目录: 已备份 ${count} 个用户"
+    log_success "$(lang_pick "用户目录: 已备份 ${count} 个用户" "User homes: backed up ${count} users")"
     summary_add "ok" "用户目录" "${count} 个用户"
   else
     summary_add "skip" "用户目录" "未找到有效用户"

@@ -101,6 +101,8 @@ summary_module_name() {
     "SSL 证书") lang_pick "SSL 证书" "SSL certificates" ;;
     "Crontab") lang_pick "Crontab" "Crontab" ;;
     "自定义路径") lang_pick "自定义路径" "Custom paths" ;;
+    "本地备份") lang_pick "本地备份" "Local backup" ;;
+    "SSH 传输") lang_pick "SSH 传输" "SSH transfer" ;;
     "远端上传") lang_pick "远端上传" "Remote upload" ;;
     "打包") lang_pick "打包" "Packaging" ;;
     "恢复自定义路径") lang_pick "恢复自定义路径" "Restore custom paths" ;;
@@ -130,6 +132,9 @@ summary_detail_text() {
     "未发现") printf '%s' "none found" ;;
     "未发现项目") printf '%s' "no projects found" ;;
     "未发现自定义服务") printf '%s' "no custom services found" ;;
+    "无独立容器") printf '%s' "no standalone containers" ;;
+    "未配置") printf '%s' "not configured" ;;
+    "未找到有效用户") printf '%s' "no valid users found" ;;
     "已恢复") printf '%s' "restored" ;;
     "已处理") printf '%s' "processed" ;;
     "已备份") printf '%s' "backed up" ;;
@@ -153,6 +158,8 @@ summary_detail_text() {
         printf '%s users' "${BASH_REMATCH[1]}"
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务$ ]]; then
         printf '%s services' "${BASH_REMATCH[1]}"
+      elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个容器$ ]]; then
+        printf '%s containers' "${BASH_REMATCH[1]}"
       else
         printf '%s' "${detail}"
       fi
