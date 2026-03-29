@@ -488,6 +488,9 @@ run_doctor() {
 
   local compose_count standalone_count systemd_count user_home_count remote_count
   local reverse_proxy db_list has_db profile
+  local has_explicit_remote_config=0
+  local requires_oci_credentials=0
+  local -a configured_restore_targets=()
 
   compose_count="$(_doctor_count_compose_projects)"
   standalone_count="$(_doctor_count_standalone_containers)"
@@ -502,6 +505,17 @@ run_doctor() {
   remote_count=0
   if command -v rclone >/dev/null 2>&1; then
     remote_count="$(rclone listremotes 2>/dev/null | wc -l | tr -d ' ')"
+  fi
+  if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" || -n "${BACKUP_TARGETS:-}" || -n "${RCLONE_REMOTE:-}" || -n "${BACKUP_PRIMARY_TARGET:-}" || -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+    has_explicit_remote_config=1
+    get_restore_targets configured_restore_targets
+    local configured_target=""
+    for configured_target in "${configured_restore_targets[@]}"; do
+      if [[ "${configured_target}" == OOS:* || "${configured_target}" == oos:* ]]; then
+        requires_oci_credentials=1
+        break
+      fi
+    done
   fi
 
   echo -e "${_CLR_BOLD}$(lang_pick "机器画像" "Machine profile"):${_CLR_NC}"
@@ -555,7 +569,22 @@ run_doctor() {
   echo
 
   echo -e "${_CLR_BOLD}$(lang_pick "建议起步路径" "Recommended adoption path"):${_CLR_NC}"
-  if (( remote_count == 0 )); then
+  if (( has_explicit_remote_config == 1 )); then
+    echo "  1. $(lang_pick "已检测到远端恢复配置，无需重新执行 init" "Remote restore configuration is already present. You do not need to run init again")"
+    if ! command -v rclone >/dev/null 2>&1; then
+      echo "  2. $(lang_pick "先安装 rclone，再导入 rclone.conf 或执行 rclone config" "Install rclone first, then import rclone.conf or run rclone config")"
+    elif (( remote_count == 0 )); then
+      echo "  2. $(lang_pick "rclone 已安装，但还没有可用 remote；请导入 rclone.conf 或执行 rclone config" "rclone is installed, but no remotes are available yet; import rclone.conf or run rclone config")"
+    else
+      echo "  2. $(lang_pick "先执行一次远端恢复前置检查，再决定走主远端还是备用远端" "Run one remote restore preflight first, then decide whether to use the primary or fallback remote")"
+    fi
+    if (( requires_oci_credentials == 1 )) && [[ ! -f /root/.oci/config ]]; then
+      echo "  3. $(lang_pick "如需使用 OCI 主目标，还需准备 /root/.oci/config；否则可回退到其他已配置远端或 restore --local" "If you want to use the OCI primary target, also prepare /root/.oci/config; otherwise use another configured remote or restore --local")"
+      echo "  4. $(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")"
+    else
+      echo "  3. $(lang_pick "正式切换前，仍建议先完成一次本地恢复演练" "Before real cutover, still complete one local restore rehearsal")"
+    fi
+  elif (( remote_count == 0 )); then
     echo "  1. $(lang_pick "先执行本地模式初始化: vpsmagic init" "Start with local-only init: vpsmagic init")"
     echo "  2. $(lang_pick "先跑通本地备份 + 本地恢复演练" "First complete local backup + local restore rehearsal")"
     echo "  3. $(lang_pick "后续再安装 rclone 并配置远端" "Install rclone and configure remote storage later")"
