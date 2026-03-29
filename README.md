@@ -73,7 +73,7 @@ bash vpsmagic.sh doctor
 4. 数据库恢复不等于业务数据一致性恢复，生产切换前仍应做业务侧校验。
 5. 对未明确支持的部署形态，必须先做演练，不应直接把首次恢复结果当作上线依据。
 
-详细说明见：[docs/zh/免责声明.md](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/免责声明.md)
+详细说明见：[docs/zh/免责声明.md](docs/zh/免责声明.md)
 
 ## 快速开始
 
@@ -85,7 +85,7 @@ bash vpsmagic.sh doctor
 
 请先走“仅本地模式”。这也是本项目默认推荐的新手入口。
 
-详细步骤见：[零配置起步](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/零配置起步.md)
+详细步骤见：[零配置起步](docs/zh/零配置起步.md)
 
 ### 1. 安装
 
@@ -144,9 +144,9 @@ bash vpsmagic.sh restore --local /path/to/backup.tar.gz --config /opt/vpsmagic/c
 
 此时再阅读：
 
-- [配置说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/配置说明.md)
-- [备份说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/备份说明.md)
-- [恢复说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/恢复说明.md)
+- [配置说明](docs/zh/配置说明.md)
+- [备份说明](docs/zh/备份说明.md)
+- [恢复说明](docs/zh/恢复说明.md)
 
 跨机恢复且远端路径使用了 `{hostname}` 时：
 
@@ -188,25 +188,25 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 
 中文文档：
 
-- [中文文档总览](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/README.md)
-- [零配置起步](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/零配置起步.md)
-- [免责声明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/免责声明.md)
-- [快速开始](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/快速开始.md)
-- [配置说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/配置说明.md)
-- [备份说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/备份说明.md)
-- [恢复说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/恢复说明.md)
-- [迁移说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/迁移说明.md)
-- [定时任务说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/定时任务说明.md)
-- [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
-- [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
-- [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
-- [真实空机远端恢复验收](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/真实空机远端恢复验收.md)
-- [最终验收结论](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/最终验收结论.md)
+- [中文文档总览](docs/zh/README.md)
+- [零配置起步](docs/zh/零配置起步.md)
+- [免责声明](docs/zh/免责声明.md)
+- [快速开始](docs/zh/快速开始.md)
+- [配置说明](docs/zh/配置说明.md)
+- [备份说明](docs/zh/备份说明.md)
+- [恢复说明](docs/zh/恢复说明.md)
+- [迁移说明](docs/zh/迁移说明.md)
+- [定时任务说明](docs/zh/定时任务说明.md)
+- [排障说明](docs/zh/排障说明.md)
+- [能力矩阵](docs/zh/能力矩阵.md)
+- [业务画像与适用场景](docs/zh/业务画像与适用场景.md)
+- [真实空机远端恢复验收](docs/zh/真实空机远端恢复验收.md)
+- [最终验收结论](docs/zh/最终验收结论.md)
 
 English docs:
 
-- [English docs overview](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/README.md)
-- [Real empty-host remote restore acceptance](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/real-empty-host-remote-restore-acceptance.md)
+- [English docs overview](docs/en/README.md)
+- [Real empty-host remote restore acceptance](docs/en/real-empty-host-remote-restore-acceptance.md)
 
 ## 当前已落地能力
 

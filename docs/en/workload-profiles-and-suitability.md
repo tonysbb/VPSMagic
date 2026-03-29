@@ -170,8 +170,8 @@ If any of these happen, pause instead of adding more automation on top:
 
 Then go back to:
 
-- [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
-- [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
+- [Disclaimer](./disclaimer.md)
+- [Restore](./restore.md)
 
 ## Practical advice for unfamiliar customer VPSes
 

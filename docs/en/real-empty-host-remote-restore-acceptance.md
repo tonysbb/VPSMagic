@@ -89,7 +89,7 @@ This acceptance pass does not change that boundary:
 
 ## Related Documents
 
-- [Restore](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/restore.md)
-- [Troubleshooting](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/troubleshooting.md)
-- [Disclaimer](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/disclaimer.md)
-- [Workload Profiles and Suitability](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/workload-profiles-and-suitability.md)
+- [Restore](./restore.md)
+- [Troubleshooting](./troubleshooting.md)
+- [Disclaimer](./disclaimer.md)
+- [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
