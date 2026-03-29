@@ -1067,11 +1067,11 @@ _preflight_restore_remote_target() {
 
   local backend_type=""
   backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
-  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
+  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${remote_name}" "${rclone_opts[@]}"; then
     _install_rclone_via_official_release || true
     backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
   fi
-  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
+  if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${remote_name}" "${rclone_opts[@]}"; then
     local extra_hint=""
     local rclone_bin=""
     rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"

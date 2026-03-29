@@ -308,14 +308,18 @@ vpsmagic_expected_backend_for_remote() {
 
 vpsmagic_rclone_backend_supported() {
   local backend="$1"
-  shift
+  local remote_name="${2:-}"
+  shift 2 || true
 
   [[ -n "${backend}" ]] || return 1
-  local rclone_bin=""
-  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
-  [[ -n "${rclone_bin}" ]] || return 1
 
-  "${rclone_bin}" "$@" help backends 2>/dev/null | awk '{print $1}' | grep -Fxq "${backend}"
+  if [[ -n "${remote_name}" ]]; then
+    local detected_type=""
+    detected_type="$(vpsmagic_rclone_remote_backend_type "${remote_name}" "$@" 2>/dev/null || true)"
+    [[ "${detected_type}" == "${backend}" ]] && return 0
+  fi
+
+  return 1
 }
 
 vpsmagic_remote_uses_oci_credentials() {

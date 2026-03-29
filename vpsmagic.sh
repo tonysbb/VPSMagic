@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # VPS Magic Backup — 主入口脚本
-# 版本: v1.0.5
+# 版本: v1.0.15
 #
 # 一套面向个人/小团队 VPS 运维的全栈备份与灾难恢复工具。
 # 支持 Docker Compose / 独立容器 / Systemd / 反代 / 数据库 /
@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.14              ║
+  ║          VPS Magic Backup  v1.0.15              ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.14              ║
+  ║          VPS Magic Backup  v1.0.15              ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -754,7 +754,7 @@ run_doctor() {
         if (( has_rclone == 1 )); then
           local backend_type=""
           backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" 2>/dev/null || true)"
-          if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}"; then
+          if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${remote_name}"; then
             has_oci_backend_support=0
           fi
         fi
