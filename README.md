@@ -25,6 +25,32 @@
 - 大量外部凭据强依赖、且目标机无法预置凭据的场景
 - 要求完整系统级回滚、卷数据回滚、业务副作用回滚的场景
 
+## 如果你的服务器不是我们的实验环境
+
+可以使用，但不要假设它会因为“不是 VPSA/VPSB”就失效，也不要反过来假设它一定能一键完整恢复。
+
+正确做法是先识别这台机器属于哪种业务画像，再决定采用哪条路径：
+
+```bash
+bash vpsmagic.sh doctor
+```
+
+这个命令会先回答：
+
+- 这台机器更像轻量通用 VPS、Compose 应用型、Systemd 服务型，还是混合 Docker 业务型
+- 当前发现了哪些部署形态
+- 远端前置条件是否具备
+- 哪些模块更接近 A / B / C 哪一级
+- 应该先从本地备份、本地恢复，还是远端恢复开始
+
+建议顺序始终是：
+
+1. 先 `doctor`
+2. 先本地备份
+3. 先本地恢复演练
+4. 再配置远端
+5. 最后才做跨机恢复 / 在线迁移
+
 ## 恢复等级矩阵
 
 | 模块 | 当前等级 | 说明 |
@@ -168,6 +194,11 @@ bash vpsmagic.sh schedule install --config /opt/vpsmagic/config.env
 - [定时任务说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/定时任务说明.md)
 - [排障说明](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/排障说明.md)
 - [能力矩阵](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/能力矩阵.md)
+- [业务画像与适用场景](/Users/terry/Project/Codex/VPSMagicBackup/docs/zh/业务画像与适用场景.md)
+
+English docs:
+
+- [English docs overview](/Users/terry/Project/Codex/VPSMagicBackup/docs/en/README.md)
 
 ## 当前已落地能力
 
