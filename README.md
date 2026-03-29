@@ -56,6 +56,11 @@ bash vpsmagic.sh status --format json
 - `doctor --format json` 更适合恢复前判断与风险评估
 - `status --format json` 更适合读取当前机器状态、配置状态和本地/远端备份概览
 
+字段说明可进一步参考：
+
+- [中文状态说明](docs/zh/状态说明.md)
+- [English status docs](docs/en/status.md)
+
 建议顺序始终是：
 
 1. 先 `doctor`

@@ -34,6 +34,10 @@ Use them for slightly different purposes:
 - `doctor --format json`: pre-restore classification and risk assessment
 - `status --format json`: current machine, configuration, and backup overview
 
+Field reference:
+
+- [Status](./status.md)
+
 ## Recommended first path
 
 For a brand-new user, the safest order is:
@@ -93,6 +97,8 @@ More English task-by-task documentation can be added under `docs/en/` as the use
   - [Configuration](./configuration.md)
 - If you want to understand standard backup behavior:
   - [Backup](./backup.md)
+- If you want to inspect the current machine and backup state:
+  - [Status](./status.md)
 - If you are preparing to restore on a target machine:
   - [Restore](./restore.md)
 - If you want the workload suitability view first:
@@ -115,8 +121,9 @@ More English task-by-task documentation can be added under `docs/en/` as the use
 2. [Quick Start](./quickstart.md)
 3. [Configuration](./configuration.md)
 4. [Backup](./backup.md)
-5. [Restore](./restore.md)
-6. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
-7. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
-8. [Capability Matrix](./capability-matrix.md)
-9. [Final Acceptance Summary](./final-acceptance-summary.md)
+5. [Status](./status.md)
+6. [Restore](./restore.md)
+7. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
+8. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
+9. [Capability Matrix](./capability-matrix.md)
+10. [Final Acceptance Summary](./final-acceptance-summary.md)
