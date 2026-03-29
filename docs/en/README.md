@@ -20,6 +20,7 @@ The `doctor` command helps answer:
 - whether remote prerequisites are ready
 - which parts are closer to A / B / C recovery grades
 - which adoption path is safer to start with
+- whether anything is currently blocking a real restore
 
 ## Recommended first path
 

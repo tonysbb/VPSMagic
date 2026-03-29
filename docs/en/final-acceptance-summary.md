@@ -62,6 +62,11 @@ The following sequence has been validated on a genuinely empty target host:
 - it reads `--config`
 - it respects `UI_LANG`
 - it gives adoption guidance that matches the current configuration state
+- it now includes a pre-restore risk assessment with:
+  - current recommendation
+  - risk level
+  - blocking items
+  - caution items
 
 ### 3. Remote restore prerequisite checks
 
@@ -155,8 +160,8 @@ By maturity level:
 
 ## Suggested Next-Phase Work
 
-1. upgrade `doctor` into a stronger pre-restore risk assessment step
-2. continue to unify the config template and documentation entry points
+1. continue to unify the config template and documentation entry points
+2. add a more automation-friendly structured output path for `doctor`
 3. later consider more advanced productization items such as:
    - `doctor --format json`
    - more formal risk grading

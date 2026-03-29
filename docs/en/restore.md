@@ -18,6 +18,37 @@ Best when:
 - you want to pull the backup directly from remote storage
 - you want less manual file transfer during cross-host recovery
 
+For remote restore, treat these as security gates rather than optional conveniences:
+
+- `rclone.conf`
+- `/root/.oci/config` when the primary path depends on `OCI`
+
+## Run `doctor` before restore
+
+```bash
+bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env
+```
+
+The current `doctor` output includes a `Pre-restore risk assessment` section. Focus on these fields:
+
+1. `Current recommendation`
+2. `Risk level`
+3. `Blocking items`
+4. `Caution items`
+
+Use them like this:
+
+- `Blocking items`
+  - means you should not start a real restore yet
+  - for example: remote restore is configured but `rclone` is missing, or the path depends on `OCI` and `/root/.oci/config` is missing
+- `Caution items`
+  - means restore may still proceed, but you should expect more manual verification afterward
+  - for example: custom `Systemd`, databases, standalone Docker containers
+- `Risk level`
+  - `Low`: usually acceptable for local rehearsal first
+  - `Medium`: proceed carefully and rehearse before real cutover
+  - `High`: clear the blockers or high-risk conditions first
+
 ## Local restore
 
 ```bash
@@ -72,6 +103,7 @@ Reason:
 2. the target machine has enough disk space
 3. if you use remote restore, the target machine really has the required remote credentials
 4. you are clear whether this run is local restore, remote restore, or cross-host restore
+5. `doctor` does not report unresolved blocking items for this path
 
 ## Post-restore checks
 

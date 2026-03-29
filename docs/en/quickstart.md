@@ -16,6 +16,21 @@ The current `init` flow supports three modes:
 
 For most first-time users, start with `Local backups only`, complete one local backup and one local restore rehearsal, and only then move on to remote storage.
 
+Before a real backup or restore run, it is also worth running:
+
+```bash
+bash vpsmagic.sh doctor --config /opt/vpsmagic/config.env
+```
+
+`doctor` now reports more than workload shape. It also gives:
+
+- a current recommendation
+- a risk level
+- blocking items
+- caution items
+
+If `doctor` already reports blocking items, do not jump straight into a real restore.
+
 ## Shortest successful path
 
 If you want the shortest path with the lowest failure rate:
@@ -100,6 +115,7 @@ Treat this first restore as a rehearsal. At minimum, confirm:
 - both the archive and `.sha256` file exist
 - restore summary shows `Errors: 0`
 - critical services and ports look reasonable
+- `doctor` did not tell you to ignore obvious blocking items first
 
 ## Cross-host restore
 
