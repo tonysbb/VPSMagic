@@ -18,6 +18,7 @@ _RESTORE_PREFLIGHT_TARGETS=()
 _RESTORE_PREFLIGHT_READY=()
 _RESTORE_PREFLIGHT_ERRORS=()
 _RESTORE_DOCKER_INSTALL_ERROR=""
+_RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -32,6 +33,7 @@ _reset_restore_health_checks() {
   _RESTORE_PREFLIGHT_READY=()
   _RESTORE_PREFLIGHT_ERRORS=()
   _RESTORE_DOCKER_INSTALL_ERROR=""
+  _RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
 }
 
 _append_unique_line() {
@@ -217,6 +219,48 @@ _install_caddy_via_official_repo() {
   _RESTORE_APT_UPDATED=0
   _ensure_restore_apt_index
   _apt_install_noninteractive caddy || return 1
+}
+
+_maybe_repair_caddy_tls_state() {
+  local since_ts="${1:-}"
+  local backup_stamp=""
+  local recent_logs=""
+  local share_dir="/var/lib/caddy/.local/share/caddy"
+  local autosave_file="/var/lib/caddy/.config/caddy/autosave.json"
+
+  [[ -n "${since_ts}" ]] || return 0
+  [[ "${_RESTORE_CADDY_TLS_SELF_HEAL_RAN}" == "1" ]] && return 0
+  command -v journalctl >/dev/null 2>&1 || return 0
+  systemctl is-active caddy >/dev/null 2>&1 || return 0
+
+  sleep 5
+  recent_logs="$(journalctl -u caddy --since "@${since_ts}" --no-pager 2>/dev/null || true)"
+  case "${recent_logs}" in
+    *"Unable to validate JWS"*|*"caddy_legacy_user_removed"*)
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  log_warn "  $(lang_pick "检测到 Caddy 证书状态异常，尝试一次性重建本机 TLS 状态" "Detected stale Caddy TLS state; attempting one local TLS state reset")"
+  backup_stamp="$(date +%Y%m%d_%H%M%S)"
+  if [[ -d "${share_dir}" ]]; then
+    cp -a "${share_dir}" "${share_dir}.bak_${backup_stamp}" >/dev/null 2>&1 || true
+  fi
+  if [[ -f "${autosave_file}" ]]; then
+    cp -a "${autosave_file}" "${autosave_file}.bak_${backup_stamp}" >/dev/null 2>&1 || true
+  fi
+
+  rm -rf "${share_dir}" >/dev/null 2>&1 || true
+  rm -f "${autosave_file}" >/dev/null 2>&1 || true
+  _RESTORE_CADDY_TLS_SELF_HEAL_RAN=1
+
+  if systemctl restart caddy >/dev/null 2>&1; then
+    log_info "  $(lang_pick "已清理本机 Caddy TLS 状态并重启服务，等待重新签发证书" "Cleared local Caddy TLS state and restarted the service; waiting for certificate re-issuance")"
+  else
+    log_warn "  $(lang_pick "Caddy TLS 状态重建后重启失败，请手动检查 journalctl -u caddy" "Caddy restart failed after TLS state reset; inspect journalctl -u caddy manually")"
+  fi
 }
 
 _ensure_rclone_installed() {
@@ -2069,6 +2113,7 @@ _restore_reverse_proxy() {
   local auto_activate_proxy=0
   local enabled_state=""
   local active_state=""
+  local caddy_tls_probe_started_at=""
 
   # Nginx
   if [[ -f "${mod_dir}/nginx/etc_nginx.tar.gz" ]]; then
@@ -2121,6 +2166,7 @@ _restore_reverse_proxy() {
         _ensure_proxy_service_package "caddy" || true
       fi
       if (( auto_activate_proxy == 1 )) && _systemd_unit_exists "caddy"; then
+        caddy_tls_probe_started_at="$(date +%s)"
         systemctl enable caddy 2>/dev/null || true
         if ! systemctl is-active caddy >/dev/null 2>&1; then
           systemctl start caddy 2>/dev/null || {
@@ -2129,6 +2175,7 @@ _restore_reverse_proxy() {
           }
         fi
         systemctl reload caddy 2>/dev/null || true
+        _maybe_repair_caddy_tls_state "${caddy_tls_probe_started_at}"
       elif (( auto_activate_proxy == 1 )); then
         log_warn "  $(lang_pick "未发现 Caddy 服务单元，请手动检查" "Caddy service unit not found. Check it manually.")"
         ((warning_count+=1))

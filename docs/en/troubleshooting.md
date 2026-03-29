@@ -71,3 +71,16 @@ journalctl -u caddy -n 100 --no-pager
 ```
 
 If DNS was just switched, a short-lived `525` is not automatically the final root cause. Confirm whether ACME validation has completed first.
+
+From the current version onward, if the restore flow detects these known local `Caddy` ACME state errors:
+
+- `Unable to validate JWS`
+- `caddy_legacy_user_removed`
+
+the tool now performs one constrained self-heal attempt automatically:
+
+1. back up the current local `/var/lib/caddy` TLS state
+2. clear the local `Caddy` certificate state cache
+3. restart `Caddy` and trigger certificate issuance again
+
+This self-heal is intentionally limited to those known ACME account-state failures. It does not blindly wipe `Caddy` state for ordinary DNS propagation delays or generic challenge failures.
