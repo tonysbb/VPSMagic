@@ -163,7 +163,7 @@ _load_config_file_safely() {
 # ---------- 配置加载 ----------
 load_config() {
   local config_file="${1:-}"
-  local log_lang="${UI_LANG:-}"
+  local log_lang=""
 
   # 搜索配置文件的优先顺序
   local search_paths=(
@@ -186,6 +186,10 @@ load_config() {
     return 0
   fi
 
+  if [[ -n "${CLI_UI_LANG:-}" ]]; then
+    log_lang="$(normalize_ui_lang "${CLI_UI_LANG}")"
+  fi
+
   if [[ -z "${log_lang}" ]]; then
     local peek_lang=""
     peek_lang="$(grep -E '^[[:space:]]*(export[[:space:]]+)?UI_LANG=' "${found}" 2>/dev/null | tail -n 1 | sed -E 's/^[[:space:]]*(export[[:space:]]+)?UI_LANG=//')"
@@ -199,6 +203,10 @@ load_config() {
     if [[ -n "${peek_lang}" ]]; then
       log_lang="$(normalize_ui_lang "${peek_lang}")"
     fi
+  fi
+
+  if [[ -z "${log_lang}" ]]; then
+    log_lang="${UI_LANG:-}"
   fi
 
   UI_LANG="${log_lang:-${UI_LANG:-}}"
@@ -220,9 +228,10 @@ load_config() {
   fi
 
   local loaded_ui_lang="${UI_LANG:-}"
-  UI_LANG="${loaded_ui_lang:-${log_lang}}"
+  UI_LANG="${log_lang:-${loaded_ui_lang}}"
   _VPSMAGIC_CONFIG_FILE="${found}"
   log_success "$(lang_pick "配置加载完成" "Config loaded successfully")"
+  UI_LANG="${loaded_ui_lang:-${log_lang}}"
   return 0
 }
 
