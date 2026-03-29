@@ -20,6 +20,7 @@ _RESTORE_PREFLIGHT_ERRORS=()
 _RESTORE_DOCKER_INSTALL_ERROR=""
 _RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
 _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=0
+_RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR=""
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -36,6 +37,7 @@ _reset_restore_health_checks() {
   _RESTORE_DOCKER_INSTALL_ERROR=""
   _RESTORE_CADDY_TLS_SELF_HEAL_RAN=0
   _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=0
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR=""
 }
 
 _append_unique_line() {
@@ -308,21 +310,38 @@ _install_rclone_via_official_script() {
     return $?
   fi
   _RESTORE_RCLONE_OFFICIAL_INSTALL_ATTEMPTED=1
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR=""
 
-  command -v curl >/dev/null 2>&1 || return 1
-  command -v bash >/dev/null 2>&1 || return 1
+  if ! command -v curl >/dev/null 2>&1; then
+    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "缺少 curl" "curl is missing")"
+    return 1
+  fi
+  if ! command -v bash >/dev/null 2>&1; then
+    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "缺少 bash" "bash is missing")"
+    return 1
+  fi
 
   local installer=""
   installer="$(mktemp /tmp/vpsmagic-rclone-install.XXXXXX 2>/dev/null || true)"
-  [[ -n "${installer}" ]] || return 1
+  if [[ -z "${installer}" ]]; then
+    _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "无法创建临时安装脚本文件" "failed to create a temporary installer file")"
+    return 1
+  fi
 
   log_info "  $(lang_pick "尝试通过 rclone 官方安装脚本安装/升级 rclone..." "Attempting to install/upgrade rclone via the official installer...")"
-  if curl -fsSL https://rclone.org/install.sh -o "${installer}" >/dev/null 2>&1 && bash "${installer}" >/dev/null 2>&1; then
+  local install_output=""
+  if install_output="$(curl -fsSL https://rclone.org/install.sh -o "${installer}" 2>&1 && bash "${installer}" 2>&1)"; then
     rm -f "${installer}" >/dev/null 2>&1 || true
-    command -v rclone >/dev/null 2>&1 || return 1
+    hash -r >/dev/null 2>&1 || true
+    if ! command -v rclone >/dev/null 2>&1; then
+      _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="$(lang_pick "官方安装脚本执行成功，但 rclone 仍不可用" "the official installer completed, but rclone is still unavailable")"
+      return 1
+    fi
     return 0
   fi
 
+  install_output="$(printf '%s' "${install_output}" | tail -n 3 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g;s/^ //;s/ $//')"
+  _RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR="${install_output:-$(lang_pick "官方安装脚本执行失败" "the official installer failed")}"
   rm -f "${installer}" >/dev/null 2>&1 || true
   return 1
 }
@@ -987,11 +1006,15 @@ _preflight_restore_remote_target() {
   local backend_type=""
   backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
-    _install_rclone_via_official_script >/dev/null 2>&1 || true
+    _install_rclone_via_official_script || true
     backend_type="$(vpsmagic_expected_backend_for_remote "${remote_name}" "${rclone_opts[@]}" 2>/dev/null || true)"
   fi
   if [[ -n "${backend_type}" ]] && ! vpsmagic_rclone_backend_supported "${backend_type}" "${rclone_opts[@]}"; then
-    printf -v "${err_var}" '%s' "$(lang_pick "当前 rclone 不支持该远端 backend" "the current rclone build does not support this remote backend"): ${remote_name} (type=${backend_type})$(lang_pick "。请安装支持该 backend 的 rclone，或改用其他远端 / restore --local。" ". Install an rclone build that supports this backend, or use another remote / restore --local.")"
+    local extra_hint=""
+    if [[ -n "${_RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR:-}" ]]; then
+      extra_hint="$(lang_pick "；官方安装尝试失败" "; official install attempt failed"): ${_RESTORE_RCLONE_OFFICIAL_INSTALL_ERROR}"
+    fi
+    printf -v "${err_var}" '%s' "$(lang_pick "当前 rclone 不支持该远端 backend" "the current rclone build does not support this remote backend"): ${remote_name} (type=${backend_type})${extra_hint}$(lang_pick "。请安装支持该 backend 的 rclone，或改用其他远端 / restore --local。" ". Install an rclone build that supports this backend, or use another remote / restore --local.")"
     return 1
   fi
 
