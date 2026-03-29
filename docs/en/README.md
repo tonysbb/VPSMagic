@@ -57,6 +57,11 @@ In practice:
 - standard Docker Compose / reverse proxy / common systemd cases are the strongest path
 - mixed Docker setups, external credentials, and business-side rollback still need more caution
 
+For remote restore, treat these as intentional security gates rather than optional conveniences:
+
+- `rclone.conf`
+- `OCI` credentials when your primary remote depends on them
+
 ## Current entry points
 
 - Root overview: [README.md](/Users/terry/Project/Codex/VPSMagicBackup/README.md)
