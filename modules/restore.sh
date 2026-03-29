@@ -1231,6 +1231,10 @@ run_restore() {
   local start_ts
   start_ts="$(date +%s)"
   local force_remote_search=0
+  local has_explicit_remote_config=0
+  if [[ -n "${BACKUP_REMOTE_OVERRIDE:-}" || -n "${BACKUP_TARGETS:-}" || -n "${RCLONE_REMOTE:-}" || -n "${BACKUP_PRIMARY_TARGET:-}" || -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+    has_explicit_remote_config=1
+  fi
 
   log_banner "$(lang_pick "VPS Magic Backup — 恢复模式" "VPS Magic Backup — Restore Mode")"
 
@@ -1275,7 +1279,7 @@ run_restore() {
     fi
   fi
 
-  if (( force_remote_search == 0 )) && [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
+  if (( force_remote_search == 0 )) && (( has_explicit_remote_config == 0 )) && [[ "${RESTORE_AUTO_CONFIRM:-0}" != "1" ]]; then
     if ! confirm "$(lang_pick "未找到本地备份，是否搜索云端备份？" "No local backup found. Search remote backups?")" "y"; then
       log_warn "$(lang_pick "用户取消恢复。" "Restore canceled by user.")"
       return 0
