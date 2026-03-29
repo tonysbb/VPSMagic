@@ -393,7 +393,7 @@ _rotate_remote_backups() {
       local old_file="${sorted_files[$i]}"
       rclone delete "${remote}/${old_file}" "${rclone_opts[@]}" 2>/dev/null || true
       rclone delete "${remote}/${old_file}.sha256" "${rclone_opts[@]}" 2>/dev/null || true
-      log_debug "  已删除远端: ${old_file}"
+      log_debug "  $(lang_pick "已删除远端" "Removed remote file"): ${old_file}"
     done
   fi
 }

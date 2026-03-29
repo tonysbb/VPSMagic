@@ -191,7 +191,7 @@ _ensure_rclone_installed() {
 
   local pm=""
   pm="$(detect_pkg_manager)"
-  log_info "  尝试安装 rclone..."
+  log_info "  $(lang_pick "尝试安装 rclone..." "Attempting to install rclone...")"
   case "${pm}" in
     apt)
       _ensure_restore_apt_index
@@ -224,7 +224,7 @@ _ensure_docker_stack_installed() {
 
   local pm=""
   pm="$(detect_pkg_manager)"
-  log_info "  尝试安装 Docker / Compose..."
+  log_info "  $(lang_pick "尝试安装 Docker / Compose..." "Attempting to install Docker / Compose...")"
   case "${pm}" in
     apt)
       _ensure_restore_apt_index
@@ -275,13 +275,13 @@ _ensure_proxy_service_package() {
     return 0
   fi
 
-  log_info "  尝试安装代理服务包: ${pkg}"
+  log_info "  $(lang_pick "尝试安装代理服务包" "Attempting to install proxy package"): ${pkg}"
   case "${pm}" in
     apt)
       _ensure_restore_apt_index
       if ! _apt_install_noninteractive "${pkg}"; then
         if [[ "${svc}" == "caddy" ]]; then
-          log_info "  默认软件源未提供 caddy，尝试添加官方仓库"
+          log_info "  $(lang_pick "默认软件源未提供 caddy，尝试添加官方仓库" "Default package sources do not provide caddy; trying the official repository")"
           _install_caddy_via_official_repo || return 1
         else
           return 1
@@ -1137,17 +1137,17 @@ _extract_tar_safe() {
   local label="${3:-tar}"
 
   if [[ ! -f "${archive}" ]]; then
-    log_error "${label}: 文件不存在 (${archive})"
+    log_error "${label}: $(lang_pick "文件不存在" "file not found") (${archive})"
     return 1
   fi
 
   while IFS= read -r entry; do
     if _is_unsafe_tar_member "${entry}"; then
-      log_error "${label}: 检测到不安全路径条目 (${entry})，拒绝解压"
+      log_error "${label}: $(lang_pick "检测到不安全路径条目，拒绝解压" "unsafe archive path detected; extraction refused") (${entry})"
       return 1
     fi
   done < <(tar -tzf "${archive}" 2>/dev/null) || {
-    log_error "${label}: 无法读取归档目录 (${archive})"
+    log_error "${label}: $(lang_pick "无法读取归档目录" "unable to read archive index") (${archive})"
     return 1
   }
 
@@ -1166,7 +1166,7 @@ _ensure_python_venv_support() {
       if dpkg -s python3-venv >/dev/null 2>&1; then
         return 0
       fi
-      log_info "    安装 python3-venv..."
+      log_info "    $(lang_pick "安装 python3-venv..." "Installing python3-venv...")"
       apt-get update -qq >/dev/null 2>&1 || true
       apt-get install -y -qq python3-venv >/dev/null 2>&1
       ;;

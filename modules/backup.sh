@@ -89,7 +89,7 @@ run_backup() {
       echo "ip_addresses=$(get_primary_ip)"
       echo "docker_version=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' || echo "none")"
     } > "${mf}"
-    log_debug "已写入 manifest"
+    log_debug "$(lang_pick "已写入 manifest" "Manifest written")"
   }
 
   _write_manifest
@@ -118,7 +118,7 @@ run_backup() {
     if command -v docker >/dev/null 2>&1; then
       docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}" > "${pkg_dir}/docker_images.txt" 2>/dev/null || true
     fi
-    log_debug "已保存软件包列表"
+    log_debug "$(lang_pick "已保存软件包列表" "Saved package inventory")"
   }
 
   _save_package_list
@@ -334,7 +334,7 @@ run_backup() {
         while IFS= read -r old_file; do
           [[ -n "${old_file}" ]] || continue
           rm -f "${old_file}" "${old_file}.sha256" "${old_file}.enc" "${old_file}.enc.sha256"
-          log_debug "  已删除: $(basename "${old_file}")"
+          log_debug "  $(lang_pick "已删除" "Removed"): $(basename "${old_file}")"
           ((removed+=1))
           (( removed >= to_remove )) && break
         done < <(list_archive_files_sorted "${archive_dir}" "${BACKUP_PREFIX:-vpsmagic}" "asc")

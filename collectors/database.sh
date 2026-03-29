@@ -275,5 +275,7 @@ collect_databases() {
   if (( found == 0 )); then
     log_info "$(lang_pick "未发现需要备份的数据库。" "No databases found for backup.")"
     summary_add "skip" "数据库" "未发现"
+  else
+    log_success "$(lang_pick "数据库备份采集完成" "Database backup collection completed")"
   fi
 }
