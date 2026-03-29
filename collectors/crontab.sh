@@ -10,10 +10,10 @@ collect_crontab() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/crontab"
 
-  log_step "采集 Crontab 定时任务..."
+  log_step "$(lang_pick "采集 Crontab 定时任务..." "Collecting Crontab jobs...")"
 
   if ! command -v crontab >/dev/null 2>&1; then
-    log_info "crontab 命令不可用，跳过采集。"
+    log_info "$(lang_pick "crontab 命令不可用，跳过采集。" "crontab is unavailable. Skipping collection.")"
     summary_add "skip" "Crontab" "命令不可用"
     return 0
   fi
@@ -21,7 +21,7 @@ collect_crontab() {
   safe_mkdir "${target_dir}"
   local found=0
 
-  if log_dry_run "备份 crontab"; then return 0; fi
+  if log_dry_run "$(lang_pick "备份 crontab" "Back up crontab")"; then return 0; fi
 
   # 导出当前用户的 crontab
   local current_user
@@ -29,7 +29,7 @@ collect_crontab() {
   if crontab -l >/dev/null 2>&1; then
     crontab -l > "${target_dir}/user_${current_user}.crontab" 2>/dev/null
     found=1
-    log_info "  导出 ${current_user} 的 crontab"
+    log_info "  $(lang_pick "导出" "Exported") ${current_user} $(lang_pick "的 crontab" "crontab")"
   fi
 
   # 如果是 root，尝试导出其他用户
@@ -41,7 +41,7 @@ collect_crontab() {
         if crontab -u "${username}" -l >/dev/null 2>&1; then
           crontab -u "${username}" -l > "${target_dir}/user_${username}.crontab" 2>/dev/null
           found=1
-          log_info "  导出 ${username} 的 crontab"
+          log_info "  $(lang_pick "导出" "Exported") ${username} $(lang_pick "的 crontab" "crontab")"
         fi
       fi
     done < /etc/passwd
@@ -86,10 +86,10 @@ collect_crontab() {
   fi
 
   if (( found == 0 )); then
-    log_info "未发现定时任务。"
+    log_info "$(lang_pick "未发现定时任务。" "No scheduled jobs found.")"
     summary_add "skip" "Crontab" "未发现"
   else
-    log_success "定时任务采集完成"
+    log_success "$(lang_pick "定时任务采集完成" "Scheduled job collection completed")"
     summary_add "ok" "Crontab" "已备份"
   fi
 }

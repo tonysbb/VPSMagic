@@ -92,6 +92,14 @@ summary_module_name() {
     "PostgreSQL") lang_pick "PostgreSQL" "PostgreSQL" ;;
     "SQLite") lang_pick "SQLite" "SQLite" ;;
     "数据库") lang_pick "数据库" "Databases" ;;
+    "用户目录") lang_pick "用户目录" "User homes" ;;
+    "防火墙") lang_pick "防火墙" "Firewall" ;;
+    "反向代理") lang_pick "反向代理" "Reverse proxy" ;;
+    "Docker Compose") lang_pick "Docker Compose" "Docker Compose" ;;
+    "独立容器") lang_pick "独立容器" "Standalone containers" ;;
+    "Systemd 服务") lang_pick "Systemd 服务" "Systemd services" ;;
+    "SSL 证书") lang_pick "SSL 证书" "SSL certificates" ;;
+    "Crontab") lang_pick "Crontab" "Crontab" ;;
     "自定义路径") lang_pick "自定义路径" "Custom paths" ;;
     "远端上传") lang_pick "远端上传" "Remote upload" ;;
     "打包") lang_pick "打包" "Packaging" ;;
@@ -120,8 +128,16 @@ summary_detail_text() {
 
   case "${detail}" in
     "未发现") printf '%s' "none found" ;;
+    "未发现项目") printf '%s' "no projects found" ;;
+    "未发现自定义服务") printf '%s' "no custom services found" ;;
     "已恢复") printf '%s' "restored" ;;
     "已处理") printf '%s' "processed" ;;
+    "已备份") printf '%s' "backed up" ;;
+    "配置已备份") printf '%s' "configuration backed up" ;;
+    "规则已备份") printf '%s' "rules backed up" ;;
+    "命令不可用") printf '%s' "command unavailable" ;;
+    "systemctl 不可用") printf '%s' "systemctl unavailable" ;;
+    "Docker 未安装") printf '%s' "Docker is not installed" ;;
     "dry-run") printf '%s' "dry-run" ;;
     "目标模式为 local") printf '%s' "destination mode is local" ;;
     *)

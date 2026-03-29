@@ -11,17 +11,17 @@ collect_docker_compose() {
   local target_dir="${staging_dir}/docker_compose"
 
   if ! command -v docker >/dev/null 2>&1; then
-    log_info "Docker 未安装，跳过 Docker Compose 采集。"
+    log_info "$(lang_pick "Docker 未安装，跳过 Docker Compose 采集。" "Docker is not installed. Skipping Docker Compose collection.")"
     summary_add "skip" "Docker Compose" "Docker 未安装"
     return 0
   fi
 
-  log_step "采集 Docker Compose 项目..."
+  log_step "$(lang_pick "采集 Docker Compose 项目..." "Collecting Docker Compose projects...")"
 
   # 探测 Compose 项目
   local -a projects=()
   if [[ "${COMPOSE_PROJECTS}" == "auto" ]]; then
-    log_info "自动探测 Docker Compose 项目..."
+    log_info "$(lang_pick "自动探测 Docker Compose 项目..." "Auto-detecting Docker Compose projects...")"
 
     # 方法1: docker compose ls (优先运行中的项目，也兼容多项目 JSON 输出)
     local compose_ls_json=""
@@ -91,7 +91,7 @@ collect_docker_compose() {
   fi
 
   if [[ ${#projects[@]} -eq 0 ]]; then
-    log_info "未发现 Docker Compose 项目。"
+    log_info "$(lang_pick "未发现 Docker Compose 项目。" "No Docker Compose projects found.")"
     summary_add "skip" "Docker Compose" "未发现项目"
     return 0
   fi
@@ -101,7 +101,7 @@ collect_docker_compose() {
 
   for proj_path in "${projects[@]}"; do
     if [[ ! -d "${proj_path}" ]]; then
-      log_warn "项目目录不存在: ${proj_path}"
+      log_warn "$(lang_pick "项目目录不存在" "Project directory does not exist"): ${proj_path}"
       continue
     fi
 
@@ -125,12 +125,12 @@ collect_docker_compose() {
     safe_mkdir "${proj_backup}"
 
     if [[ "${backup_key}" == "${compose_project_name}" ]]; then
-      log_info "  备份项目: ${compose_project_name} (${proj_path})"
+      log_info "  $(lang_pick "备份项目" "Backing up project"): ${compose_project_name} (${proj_path})"
     else
-      log_info "  备份项目: ${compose_project_name} (${proj_path}) -> ${backup_key}"
+      log_info "  $(lang_pick "备份项目" "Backing up project"): ${compose_project_name} (${proj_path}) -> ${backup_key}"
     fi
 
-    if log_dry_run "备份 Docker Compose 项目: ${proj_path}"; then
+    if log_dry_run "$(lang_pick "备份 Docker Compose 项目: ${proj_path}" "Back up Docker Compose project: ${proj_path}")"; then
       ((count+=1))
       continue
     fi
@@ -169,9 +169,9 @@ collect_docker_compose() {
         vol_mount="$(docker volume inspect "${compose_project_name}_${vol_name}" --format '{{ .Mountpoint }}' 2>/dev/null || \
                      docker volume inspect "${vol_name}" --format '{{ .Mountpoint }}' 2>/dev/null || true)"
         if [[ -n "${vol_mount}" && -d "${vol_mount}" ]]; then
-          log_debug "    备份卷: ${vol_name} (${vol_mount})"
+          log_debug "    $(lang_pick "备份卷" "Backing up volume"): ${vol_name} (${vol_mount})"
           tar -czf "${vol_dir}/${vol_name}.tar.gz" -C "${vol_mount}" . 2>/dev/null || {
-            log_warn "    卷 ${vol_name} 备份失败"
+            log_warn "    $(lang_pick "卷" "Volume") ${vol_name} $(lang_pick "备份失败" "backup failed")"
           }
         fi
       done
@@ -230,6 +230,6 @@ collect_docker_compose() {
     ((count+=1))
   done
 
-  log_success "Docker Compose: 已备份 ${count} 个项目"
+  log_success "$(lang_pick "Docker Compose: 已备份 ${count} 个项目" "Docker Compose: backed up ${count} projects")"
   summary_add "ok" "Docker Compose" "${count} 个项目"
 }

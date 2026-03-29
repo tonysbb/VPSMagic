@@ -122,7 +122,7 @@ _load_config_file_safely() {
     fi
 
     if [[ "${line}" != *"="* ]]; then
-      log_warn "配置第 ${line_no} 行格式无效，已跳过。"
+      log_warn "$(lang_pick "配置第 ${line_no} 行格式无效，已跳过。" "Config line ${line_no} is invalid and has been skipped.")"
       continue
     fi
 
@@ -132,12 +132,12 @@ _load_config_file_safely() {
     value="$(_trim_spaces "${value}")"
 
     if [[ ! "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
-      log_warn "配置第 ${line_no} 行键名非法 (${key})，已跳过。"
+      log_warn "$(lang_pick "配置第 ${line_no} 行键名非法 (${key})，已跳过。" "Config line ${line_no} has an invalid key (${key}) and has been skipped.")"
       continue
     fi
 
     if ! _is_allowed_config_key "${key}"; then
-      log_warn "配置项 ${key} 不在允许列表中，已跳过。"
+      log_warn "$(lang_pick "配置项 ${key} 不在允许列表中，已跳过。" "Config key ${key} is not allowed and has been skipped.")"
       continue
     fi
 
@@ -310,7 +310,7 @@ validate_config() {
     return 1
   fi
 
-  log_debug "配置校验通过"
+  log_debug "$(lang_pick "配置校验通过" "Configuration validation passed")"
   return 0
 }
 
@@ -321,7 +321,7 @@ normalize_backup_destination() {
       echo "${destination}"
       ;;
     *)
-      log_warn "未知 BACKUP_DESTINATION=${destination}，已回退为 remote"
+      log_warn "$(lang_pick "未知 BACKUP_DESTINATION=${destination}，已回退为 remote" "Unknown BACKUP_DESTINATION=${destination}; falling back to remote")"
       echo "remote"
       ;;
   esac

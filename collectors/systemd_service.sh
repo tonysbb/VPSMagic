@@ -35,16 +35,16 @@ collect_systemd_services() {
   local target_dir="${staging_dir}/systemd"
 
   if ! command -v systemctl >/dev/null 2>&1; then
-    log_info "systemctl 未找到，跳过 Systemd 采集。"
+    log_info "$(lang_pick "systemctl 未找到，跳过 Systemd 采集。" "systemctl not found. Skipping Systemd collection.")"
     summary_add "skip" "Systemd 服务" "systemctl 不可用"
     return 0
   fi
 
-  log_step "采集 Systemd 服务..."
+  log_step "$(lang_pick "采集 Systemd 服务..." "Collecting Systemd services...")"
 
   local -a services=()
   if [[ "${SYSTEMD_SERVICES}" == "auto" ]]; then
-    log_info "自动探测用户自定义的 Systemd 服务..."
+    log_info "$(lang_pick "自动探测用户自定义的 Systemd 服务..." "Auto-detecting custom Systemd services...")"
     while IFS= read -r svc_file; do
       local svc_name
       svc_name="$(basename "${svc_file}")"
@@ -59,7 +59,7 @@ collect_systemd_services() {
   fi
 
   if [[ ${#services[@]} -eq 0 ]]; then
-    log_info "未发现自定义 Systemd 服务。"
+    log_info "$(lang_pick "未发现自定义 Systemd 服务。" "No custom Systemd services found.")"
     summary_add "skip" "Systemd 服务" "未发现自定义服务"
     return 0
   fi
@@ -74,9 +74,9 @@ collect_systemd_services() {
     local svc_dir="${target_dir}/${svc_name}"
     safe_mkdir "${svc_dir}"
 
-    log_info "  备份服务: ${svc_name}"
+    log_info "  $(lang_pick "备份服务" "Backing up service"): ${svc_name}"
 
-    if log_dry_run "备份 Systemd 服务: ${svc_name}"; then
+    if log_dry_run "$(lang_pick "备份 Systemd 服务: ${svc_name}" "Back up Systemd service: ${svc_name}")"; then
       ((count+=1))
       continue
     fi
@@ -110,7 +110,7 @@ collect_systemd_services() {
       env_path="$(echo "${env_file}" | awk '{print $1}')"
       if [[ -f "${env_path}" ]]; then
         safe_copy "${env_path}" "${svc_dir}/"
-        log_debug "    备份环境文件: ${env_path}"
+        log_debug "    $(lang_pick "备份环境文件" "Backing up environment file"): ${env_path}"
       fi
     fi
 
@@ -129,7 +129,7 @@ collect_systemd_services() {
       # 仅备份非系统目录
       if [[ "${exec_dir}" != "/usr/bin" && "${exec_dir}" != "/usr/sbin" && "${exec_dir}" != "/bin" && "${exec_dir}" != "/sbin" ]]; then
         if [[ -d "${exec_dir}" ]]; then
-          log_debug "    备份程序目录: ${exec_dir}"
+          log_debug "    $(lang_pick "备份程序目录" "Backing up program directory"): ${exec_dir}"
           tar -czf "${svc_dir}/program.tar.gz" -C "$(dirname "${exec_dir}")" "$(basename "${exec_dir}")" 2>/dev/null || true
           echo "${exec_dir}" > "${svc_dir}/_program_path.txt"
         fi
@@ -141,7 +141,7 @@ collect_systemd_services() {
     work_dir="$(systemctl show "${svc_name}" -p WorkingDirectory --value 2>/dev/null || true)"
     if [[ -n "${work_dir}" && "${work_dir}" == /* && -d "${work_dir}" ]]; then
       if [[ "${work_dir}" != "/" && "${work_dir}" != "${exec_dir:-}" ]]; then
-        log_debug "    备份工作目录: ${work_dir}"
+        log_debug "    $(lang_pick "备份工作目录" "Backing up working directory"): ${work_dir}"
 
         # 智能备份：排除 .venv、node_modules 等大型依赖目录
         tar -czf "${svc_dir}/workdir.tar.gz" \
@@ -169,12 +169,12 @@ collect_systemd_services() {
         fi
 
         if [[ -n "${venv_dir}" && -d "${venv_dir}" ]]; then
-          log_info "    探测到 Python venv: ${venv_dir}"
+          log_info "    $(lang_pick "探测到 Python venv" "Detected Python venv"): ${venv_dir}"
 
           # 导出 pip freeze (比备份整个 venv 更可靠且更小)
           if [[ -x "${venv_dir}/bin/pip" ]]; then
             "${venv_dir}/bin/pip" freeze > "${svc_dir}/requirements_freeze.txt" 2>/dev/null || true
-            log_debug "    导出 pip freeze: $(wc -l < "${svc_dir}/requirements_freeze.txt" 2>/dev/null || echo 0) 个包"
+            log_debug "    $(lang_pick "导出 pip freeze" "Exported pip freeze"): $(wc -l < "${svc_dir}/requirements_freeze.txt" 2>/dev/null || echo 0) $(lang_pick "个包" "packages")"
           fi
 
           # 也备份原始 requirements.txt (如果存在)
@@ -206,6 +206,6 @@ collect_systemd_services() {
     ((count+=1))
   done
 
-  log_success "Systemd 服务: 已备份 ${count} 个"
+  log_success "$(lang_pick "Systemd 服务: 已备份 ${count} 个" "Systemd services: backed up ${count}")"
   summary_add "ok" "Systemd 服务" "${count} 个服务"
 }

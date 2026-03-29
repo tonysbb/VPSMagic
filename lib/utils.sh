@@ -11,9 +11,9 @@ require_cmd() {
   local cmd="$1"
   local install_hint="${2:-}"
   if ! command -v "${cmd}" >/dev/null 2>&1; then
-    log_error "未检测到命令: ${cmd}"
+    log_error "$(lang_pick "未检测到命令" "Missing command"): ${cmd}"
     if [[ -n "${install_hint}" ]]; then
-      echo -e "  安装方法: ${install_hint}" >&2
+      echo -e "  $(lang_pick "安装方法" "Install"): ${install_hint}" >&2
     fi
     return 1
   fi
@@ -64,7 +64,7 @@ safe_mkdir() {
   local dir="$1"
   if [[ ! -d "${dir}" ]]; then
     mkdir -p "${dir}" || {
-      log_error "无法创建目录: ${dir}"
+      log_error "$(lang_pick "无法创建目录" "Failed to create directory"): ${dir}"
       return 1
     }
   fi
@@ -75,13 +75,13 @@ safe_copy() {
   local dst="$2"
   if [[ -e "${src}" ]]; then
     cp -a "${src}" "${dst}" 2>/dev/null || {
-      log_warn "复制失败: ${src} -> ${dst}"
+      log_warn "$(lang_pick "复制失败" "Copy failed"): ${src} -> ${dst}"
       return 1
     }
     return 0
   fi
 
-  log_debug "源不存在，跳过: ${src}"
+  log_debug "$(lang_pick "源不存在，跳过" "Source does not exist, skipping"): ${src}"
   return 0
 }
 
@@ -91,13 +91,13 @@ safe_copy_dir() {
   if [[ -d "${src}" ]]; then
     safe_mkdir "${dst}"
     cp -a "${src}/." "${dst}/" 2>/dev/null || {
-      log_warn "目录复制失败: ${src} -> ${dst}"
+      log_warn "$(lang_pick "目录复制失败" "Directory copy failed"): ${src} -> ${dst}"
       return 1
     }
     return 0
   fi
 
-  log_debug "源目录不存在，跳过: ${src}"
+  log_debug "$(lang_pick "源目录不存在，跳过" "Source directory does not exist, skipping"): ${src}"
   return 0
 }
 
@@ -110,7 +110,7 @@ checksum_file() {
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "${file}" > "${sum_file}"
   else
-    log_warn "未找到 sha256sum 或 shasum，跳过校验。"
+    log_warn "$(lang_pick "未找到 sha256sum 或 shasum，跳过校验。" "sha256sum or shasum not found. Skipping checksum generation.")"
     return 1
   fi
 }
@@ -119,13 +119,13 @@ verify_checksum() {
   local file="$1"
   local sum_file="${2:-${file}.sha256}"
   if [[ ! -f "${sum_file}" ]]; then
-    log_warn "校验文件不存在: ${sum_file}"
+    log_warn "$(lang_pick "校验文件不存在" "Checksum file not found"): ${sum_file}"
     return 1
   fi
   local expected=""
   expected="$(awk 'NF {print $1; exit}' "${sum_file}" 2>/dev/null)"
   if [[ -z "${expected}" ]]; then
-    log_warn "校验文件内容无效: ${sum_file}"
+    log_warn "$(lang_pick "校验文件内容无效" "Checksum file is invalid"): ${sum_file}"
     return 1
   fi
 
@@ -135,7 +135,7 @@ verify_checksum() {
   elif command -v shasum >/dev/null 2>&1; then
     actual="$(shasum -a 256 "${file}" 2>/dev/null | awk '{print $1}')"
   else
-    log_warn "未找到校验工具，跳过验证。"
+    log_warn "$(lang_pick "未找到校验工具，跳过验证。" "Checksum tool not found. Skipping verification.")"
     return 1
   fi
 

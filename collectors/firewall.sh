@@ -10,17 +10,17 @@ collect_firewall() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/firewall"
 
-  log_step "采集防火墙规则..."
+  log_step "$(lang_pick "采集防火墙规则..." "Collecting firewall rules...")"
 
   local found=0
 
-  if log_dry_run "备份防火墙规则"; then return 0; fi
+  if log_dry_run "$(lang_pick "备份防火墙规则" "Back up firewall rules")"; then return 0; fi
 
   safe_mkdir "${target_dir}"
 
   # ---- UFW ----
   if command -v ufw >/dev/null 2>&1; then
-    log_info "  发现 UFW 防火墙"
+    log_info "  $(lang_pick "发现 UFW 防火墙" "Detected UFW firewall")"
     ufw status verbose > "${target_dir}/ufw_status.txt" 2>/dev/null || true
     ufw show raw > "${target_dir}/ufw_raw.txt" 2>/dev/null || true
     # 备份 UFW 规则文件
@@ -36,7 +36,7 @@ collect_firewall() {
 
   # ---- iptables ----
   if command -v iptables >/dev/null 2>&1; then
-    log_info "  导出 iptables 规则"
+    log_info "  $(lang_pick "导出 iptables 规则" "Exporting iptables rules")"
     iptables-save > "${target_dir}/iptables.rules" 2>/dev/null || true
     if command -v ip6tables-save >/dev/null 2>&1; then
       ip6tables-save > "${target_dir}/ip6tables.rules" 2>/dev/null || true
@@ -46,7 +46,7 @@ collect_firewall() {
 
   # ---- nftables ----
   if command -v nft >/dev/null 2>&1; then
-    log_info "  导出 nftables 规则"
+    log_info "  $(lang_pick "导出 nftables 规则" "Exporting nftables rules")"
     nft list ruleset > "${target_dir}/nftables.rules" 2>/dev/null || true
     safe_copy "/etc/nftables.conf" "${target_dir}/"
     found=1
@@ -54,7 +54,7 @@ collect_firewall() {
 
   # ---- firewalld ----
   if command -v firewall-cmd >/dev/null 2>&1; then
-    log_info "  发现 firewalld"
+    log_info "  $(lang_pick "发现 firewalld" "Detected firewalld")"
     firewall-cmd --list-all-zones > "${target_dir}/firewalld_zones.txt" 2>/dev/null || true
     firewall-cmd --list-all > "${target_dir}/firewalld_default.txt" 2>/dev/null || true
     if [[ -d "/etc/firewalld" ]]; then
@@ -65,7 +65,7 @@ collect_firewall() {
 
   # ---- fail2ban ----
   if command -v fail2ban-client >/dev/null 2>&1; then
-    log_info "  发现 fail2ban"
+    log_info "  $(lang_pick "发现 fail2ban" "Detected fail2ban")"
     fail2ban-client status > "${target_dir}/fail2ban_status.txt" 2>/dev/null || true
     if [[ -d "/etc/fail2ban" ]]; then
       tar -czf "${target_dir}/etc_fail2ban.tar.gz" -C /etc fail2ban 2>/dev/null || true
@@ -74,10 +74,10 @@ collect_firewall() {
   fi
 
   if (( found == 0 )); then
-    log_info "未发现防火墙配置。"
+    log_info "$(lang_pick "未发现防火墙配置。" "No firewall configuration found.")"
     summary_add "skip" "防火墙" "未发现"
   else
-    log_success "防火墙规则采集完成"
+    log_success "$(lang_pick "防火墙规则采集完成" "Firewall rule collection completed")"
     summary_add "ok" "防火墙" "规则已备份"
   fi
 }
