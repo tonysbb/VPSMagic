@@ -201,6 +201,19 @@ get_file_size() {
   fi
 }
 
+get_dir_size() {
+  local dir="$1"
+  if [[ ! -d "${dir}" ]]; then
+    echo "0"
+    return
+  fi
+  if du -sb "${dir}" >/dev/null 2>&1; then
+    du -sb "${dir}" 2>/dev/null | awk '{print $1}'
+  else
+    du -sk "${dir}" 2>/dev/null | awk '{print $1 * 1024}'
+  fi
+}
+
 get_file_mode() {
   local path="$1"
   if [[ ! -e "${path}" ]]; then

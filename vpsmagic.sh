@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.5               ║
+  ║          VPS Magic Backup  v1.0.6               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -171,6 +171,9 @@ show_help() {
     # Doctor output as JSON
     vpsmagic doctor --format json
 
+    # Status output as JSON
+    vpsmagic status --format json
+
     # Restore from a local archive
     vpsmagic restore --local /path/to/backup.tar.gz
 
@@ -192,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.5               ║
+  ║          VPS Magic Backup  v1.0.6               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -256,6 +259,9 @@ EOF
     # 以 JSON 输出 doctor 结果
     vpsmagic doctor --format json
 
+    # 以 JSON 输出 status 结果
+    vpsmagic status --format json
+
     # 从本地文件恢复
     vpsmagic restore --local /path/to/backup.tar.gz
 
@@ -283,13 +289,147 @@ show_version() {
 
 # ---------- 状态概览 ----------
 show_status() {
+  local status_mode="backup"
+  local hostname_value os_value kernel_value ip_value
+  local archive_dir count newest newest_size total_size
+  local schedule_enabled=0
+  local encryption_enabled=0
+  local -a backup_targets=()
+  local -a enabled_modules=()
+
+  [[ -n "${RESTORE_SOURCE_HOSTNAME:-}" ]] && status_mode="restore"
+  hostname_value="$(hostname 2>/dev/null || echo "unknown")"
+  os_value="$(cat /etc/os-release 2>/dev/null | grep '^PRETTY_NAME=' | cut -d= -f2 | tr -d '"' || uname -s)"
+  kernel_value="$(uname -r 2>/dev/null)"
+  ip_value="$(get_primary_ip)"
+  archive_dir="${BACKUP_ROOT}/archives"
+  count=0
+  newest=""
+  newest_size="0"
+  total_size="0"
+  [[ -n "${BACKUP_ENCRYPTION_KEY:-}" ]] && encryption_enabled=1
+  crontab -l 2>/dev/null | grep -qF "# VPSMagicBackup" && schedule_enabled=1
+
+  if [[ "${status_mode}" == "restore" ]]; then
+    get_restore_targets backup_targets
+  else
+    get_backup_targets backup_targets
+  fi
+
+  local module_key=""
+  local modules=(
+    "DOCKER_COMPOSE"
+    "DOCKER_STANDALONE"
+    "SYSTEMD"
+    "REVERSE_PROXY"
+    "DATABASE"
+    "SSL_CERTS"
+    "CRONTAB"
+    "FIREWALL"
+    "USER_HOME"
+    "CUSTOM_PATHS"
+  )
+  for module_key in "${modules[@]}"; do
+    if is_module_enabled "${module_key}"; then
+      enabled_modules+=("${module_key}")
+    fi
+  done
+
+  if [[ -d "${archive_dir}" ]]; then
+    count="$(find "${archive_dir}" -maxdepth 1 \( -name "*.tar.gz" -o -name "*.tar.gz.enc" \) -type f 2>/dev/null | wc -l | tr -d ' ')"
+    if (( count > 0 )); then
+      newest="$(get_newest_archive_file "${archive_dir}")"
+      if [[ -n "${newest}" ]]; then
+        newest_size="$(get_file_size "${newest}")"
+      fi
+      total_size="$(get_dir_size "${archive_dir}")"
+      [[ -z "${total_size}" ]] && total_size="0"
+    fi
+  fi
+
+  if [[ "${CLI_OUTPUT_FORMAT:-text}" == "json" ]]; then
+    local remote_counts_json="["
+    local remote_target=""
+    local remote_count=0
+    local idx=0
+    if command -v rclone >/dev/null 2>&1 && (( ${#backup_targets[@]} > 0 )); then
+      for idx in "${!backup_targets[@]}"; do
+        remote_target="${backup_targets[$idx]}"
+        remote_count="$(rclone lsf "${remote_target}/" 2>/dev/null | awk '/\\.tar\\.gz(\\.enc)?$/ {count+=1} END {print count+0}')"
+        [[ ${idx} -gt 0 ]] && remote_counts_json+=", "
+        remote_counts_json+="{\"target\": $(_json_string "${remote_target}"), \"backup_count\": ${remote_count}}"
+      done
+    fi
+    remote_counts_json+="]"
+
+    cat <<EOF
+{
+  "command": "status",
+  "format": "json",
+  "language": $(_json_string "${UI_LANG:-zh}"),
+  "system": {
+    "hostname": $(_json_string "${hostname_value}"),
+    "operating_system": $(_json_string "${os_value}"),
+    "kernel": $(_json_string "${kernel_value}"),
+    "primary_ip": $(_json_string "${ip_value}")
+  },
+  "configuration": {
+    "mode": $(_json_string "${status_mode}"),
+    "backup_root": $(_json_string "${BACKUP_ROOT}"),
+    "backup_destination": $(_json_string "$(normalize_backup_destination)"),
+    "ui_language": $(_json_string "${UI_LANG:-zh}"),
+    "remote_targets": $(_json_string_array backup_targets),
+    "primary_target": $(_json_string "$(
+      if [[ -n "${BACKUP_PRIMARY_TARGET:-}" ]]; then
+        if [[ "${status_mode}" == "restore" ]]; then
+          get_restore_primary_target
+        else
+          get_backup_primary_target
+        fi
+      fi
+    )"),
+    "async_target": $(_json_string "$(
+      if [[ -n "${BACKUP_ASYNC_TARGET:-}" ]]; then
+        if [[ "${status_mode}" == "restore" ]]; then
+          expand_backup_target_template_with_host "${BACKUP_ASYNC_TARGET}" "$(get_restore_source_hostname)"
+        else
+          get_backup_async_target
+        fi
+      fi
+    )"),
+    "restore_source_hostname": $(_json_string "${RESTORE_SOURCE_HOSTNAME:-}"),
+    "interactive_remote_selection": $(_json_bool "${BACKUP_INTERACTIVE_TARGETS:-true}"),
+    "auto_rollback_on_failure": $(_json_bool "${RESTORE_ROLLBACK_ON_FAILURE:-false}"),
+    "keep_local": ${BACKUP_KEEP_LOCAL},
+    "keep_remote": ${BACKUP_KEEP_REMOTE},
+    "encryption_enabled": $(_json_bool "${encryption_enabled}"),
+    "notifications_enabled": $(_json_bool "${NOTIFY_ENABLED:-false}"),
+    "log_file": $(_json_string "${LOG_FILE}")
+  },
+  "enabled_modules": $(_json_string_array enabled_modules),
+  "local_backups": {
+    "archive_dir": $(_json_string "${archive_dir}"),
+    "backup_count": ${count},
+    "latest_backup": $(_json_string "$(basename "${newest:-}")"),
+    "latest_size_bytes": ${newest_size},
+    "total_size_bytes": ${total_size}
+  },
+  "remote_backups": ${remote_counts_json},
+  "schedule": {
+    "enabled": $(_json_bool "${schedule_enabled}")
+  }
+}
+EOF
+    return 0
+  fi
+
   log_banner "$(lang_pick "VPS Magic Backup — 系统状态" "VPS Magic Backup — System Status")"
 
   echo -e "${_CLR_BOLD}$(lang_pick "系统信息" "System info"):${_CLR_NC}"
-  echo "  $(lang_pick "主机名" "Hostname"):     $(hostname 2>/dev/null || echo "unknown")"
-  echo "  $(lang_pick "操作系统" "Operating system"):   $(cat /etc/os-release 2>/dev/null | grep '^PRETTY_NAME=' | cut -d= -f2 | tr -d '"' || uname -s)"
-  echo "  $(lang_pick "内核" "Kernel"):       $(uname -r 2>/dev/null)"
-  echo "  IP:         $(get_primary_ip)"
+  echo "  $(lang_pick "主机名" "Hostname"):     ${hostname_value}"
+  echo "  $(lang_pick "操作系统" "Operating system"):   ${os_value}"
+  echo "  $(lang_pick "内核" "Kernel"):       ${kernel_value}"
+  echo "  IP:         ${ip_value}"
   echo
 
   echo -e "${_CLR_BOLD}$(lang_pick "依赖检测" "Dependency check"):${_CLR_NC}"
@@ -311,30 +451,19 @@ show_status() {
   done
   echo
 
-  local status_mode="backup"
-  if [[ -n "${RESTORE_SOURCE_HOSTNAME:-}" ]]; then
-    status_mode="restore"
-  fi
   print_config "${status_mode}"
 
   # 备份状态
-  local archive_dir="${BACKUP_ROOT}/archives"
   if [[ -d "${archive_dir}" ]]; then
-    local count
-    count="$(find "${archive_dir}" -maxdepth 1 \( -name "*.tar.gz" -o -name "*.tar.gz.enc" \) -type f 2>/dev/null | wc -l | tr -d ' ')"
     echo -e "${_CLR_BOLD}$(lang_pick "本地备份" "Local backups"):${_CLR_NC}"
     echo "  $(lang_pick "存储目录" "Storage path"): ${archive_dir}"
     echo "  $(lang_pick "备份数量" "Backup count"): ${count} $(lang_pick "份" "copies")"
     if (( count > 0 )); then
-      local newest
-      newest="$(get_newest_archive_file "${archive_dir}")"
       if [[ -n "${newest}" ]]; then
         echo "  $(lang_pick "最新备份" "Latest backup"): $(basename "${newest}")"
-        echo "  $(lang_pick "最新大小" "Latest size"): $(human_size "$(get_file_size "${newest}")")"
+        echo "  $(lang_pick "最新大小" "Latest size"): $(human_size "${newest_size}")"
       fi
-      local total_size
-      total_size="$(du -sh "${archive_dir}" 2>/dev/null | awk '{print $1}')"
-      echo "  $(lang_pick "总占用" "Total size"):   ${total_size}"
+      echo "  $(lang_pick "总占用" "Total size"):   $(human_size "${total_size}")"
     fi
   else
     echo -e "${_CLR_BOLD}$(lang_pick "本地备份" "Local backups"):${_CLR_NC} $(lang_pick "无" "none")"
@@ -1275,8 +1404,8 @@ main() {
     exit 0
   fi
 
-  if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${SUBCOMMAND}" != "doctor" ]]; then
-    log_error "$(lang_pick "--format 当前仅支持 doctor 命令" "--format is currently supported only for the doctor command")"
+  if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${SUBCOMMAND}" != "doctor" && "${SUBCOMMAND}" != "status" ]]; then
+    log_error "$(lang_pick "--format 当前仅支持 doctor 和 status 命令" "--format is currently supported only for the doctor and status commands")"
     exit 1
   fi
 
@@ -1306,6 +1435,24 @@ main() {
         set_ui_language "${UI_LANG}"
       fi
       run_doctor
+      exit 0
+      ;;
+    status)
+      if [[ -n "${CLI_OUTPUT_FORMAT:-}" && "${CLI_OUTPUT_FORMAT}" != "text" && "${CLI_OUTPUT_FORMAT}" != "json" ]]; then
+        log_error "$(lang_pick "status 仅支持 --format text 或 --format json" "status only supports --format text or --format json")"
+        exit 1
+      fi
+      if [[ "${CLI_OUTPUT_FORMAT:-}" == "json" ]]; then
+        load_config "${CONFIG_FILE}" >/dev/null
+      else
+        load_config "${CONFIG_FILE}"
+      fi
+      set_ui_language "${CLI_UI_LANG:-${UI_LANG:-}}"
+      if [[ -n "${CLI_UI_LANG}" ]]; then
+        UI_LANG="${CLI_UI_LANG}"
+        set_ui_language "${UI_LANG}"
+      fi
+      show_status
       exit 0
       ;;
   esac
