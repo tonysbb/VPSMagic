@@ -552,9 +552,9 @@ run_doctor() {
     echo -e "  ${_CLR_DIM}✗ rclone${_CLR_NC}"
   fi
   if [[ -f /root/.oci/config ]]; then
-    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} OCI credentials"
+    echo -e "  ${_CLR_GREEN}✓${_CLR_NC} $(lang_pick "OCI 凭据" "OCI credentials")"
   else
-    echo -e "  ${_CLR_DIM}✗ OCI credentials${_CLR_NC}"
+    echo -e "  ${_CLR_DIM}✗ $(lang_pick "OCI 凭据" "OCI credentials")${_CLR_NC}"
   fi
   echo
 

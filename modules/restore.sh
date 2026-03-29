@@ -17,6 +17,7 @@ _RESTORE_SSH_PORTS=()
 _RESTORE_PREFLIGHT_TARGETS=()
 _RESTORE_PREFLIGHT_READY=()
 _RESTORE_PREFLIGHT_ERRORS=()
+_RESTORE_DOCKER_INSTALL_ERROR=""
 
 _reset_restore_health_checks() {
   _RESTORE_HEALTH_COMPOSE_DIRS=()
@@ -30,6 +31,7 @@ _reset_restore_health_checks() {
   _RESTORE_PREFLIGHT_TARGETS=()
   _RESTORE_PREFLIGHT_READY=()
   _RESTORE_PREFLIGHT_ERRORS=()
+  _RESTORE_DOCKER_INSTALL_ERROR=""
 }
 
 _append_unique_line() {
@@ -219,11 +221,13 @@ _ensure_rclone_installed() {
 
 _ensure_docker_stack_installed() {
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    _RESTORE_DOCKER_INSTALL_ERROR=""
     return 0
   fi
 
   local pm=""
   pm="$(detect_pkg_manager)"
+  _RESTORE_DOCKER_INSTALL_ERROR=""
   log_info "  $(lang_pick "尝试安装 Docker / Compose..." "Attempting to install Docker / Compose...")"
   case "${pm}" in
     apt)
@@ -231,31 +235,54 @@ _ensure_docker_stack_installed() {
       _apt_install_noninteractive ca-certificates curl gnupg lsb-release >/dev/null 2>&1 || true
       if _apt_package_available "docker-ce" && _apt_package_available "docker-compose-plugin"; then
         if ! _apt_install_noninteractive docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+          _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "安装 docker-ce / docker-compose-plugin 失败" "failed to install docker-ce / docker-compose-plugin")"
           return 1
         fi
-      else
+      elif _apt_package_available "docker.io" && _apt_package_available "docker-compose-plugin"; then
         if ! _apt_install_noninteractive docker.io docker-compose-plugin; then
+          _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "安装 docker.io / docker-compose-plugin 失败" "failed to install docker.io / docker-compose-plugin")"
           return 1
         fi
+      elif _apt_package_available "docker.io"; then
+        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源只提供 docker.io，未提供 docker-compose-plugin。请添加 Docker 官方仓库或手动安装 Docker Compose。" "APT sources provide docker.io but not docker-compose-plugin. Add Docker's official repository or install Docker Compose manually.")"
+        return 1
+      else
+        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源未提供可用的 Docker / Docker Compose 软件包" "APT sources do not provide usable Docker / Docker Compose packages")"
+        return 1
       fi
       ;;
     apk)
-      apk add --quiet docker docker-cli-compose >/dev/null 2>&1 || return 1
+      apk add --quiet docker docker-cli-compose >/dev/null 2>&1 || {
+        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "安装 docker / docker-cli-compose 失败" "failed to install docker / docker-cli-compose")"
+        return 1
+      }
       ;;
     dnf|yum)
       if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
         :
       else
+        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "当前发行版未实现自动安装，请先手动安装 Docker / Docker Compose" "automatic installation is not implemented for this distribution; install Docker / Docker Compose manually first")"
         return 1
       fi
       ;;
     *)
+      _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "当前包管理器不支持自动安装 Docker / Docker Compose" "automatic Docker / Docker Compose installation is not supported for this package manager")"
       return 1
       ;;
   esac
 
   systemctl enable --now docker >/dev/null 2>&1 || true
-  command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    _RESTORE_DOCKER_INSTALL_ERROR=""
+    return 0
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    _RESTORE_DOCKER_INSTALL_ERROR="${_RESTORE_DOCKER_INSTALL_ERROR:-$(lang_pick "Docker 已安装，但 docker compose 子命令不可用" "Docker is installed, but the docker compose subcommand is unavailable")}"
+  else
+    _RESTORE_DOCKER_INSTALL_ERROR="${_RESTORE_DOCKER_INSTALL_ERROR:-$(lang_pick "Docker 安装后仍不可用" "Docker is still unavailable after installation")}"
+  fi
+  return 1
 }
 
 _ensure_proxy_service_package() {
@@ -515,6 +542,9 @@ _finalize_restore_result() {
   local rollback_enabled="${RESTORE_ROLLBACK_ON_FAILURE:-false}"
 
   if _restore_has_critical_failure; then
+    if [[ "$(_summary_count_status "error")" == "0" ]]; then
+      summary_add "error" "恢复总体状态" "$(lang_pick "至少一个关键恢复步骤失败，详见上方日志" "at least one critical restore step failed; see logs above")"
+    fi
     if [[ -z "${snapshot_dir}" || ! -d "${snapshot_dir}" ]]; then
       summary_add "warn" "恢复回滚" "$(lang_pick "未生成恢复前快照，无法自动回滚" "no pre-restore snapshot was created; automatic rollback is unavailable")"
     elif [[ "${rollback_enabled}" == "true" ]]; then
@@ -1661,16 +1691,16 @@ _restore_docker_compose() {
 
   if ! command -v docker >/dev/null 2>&1; then
     if ! _ensure_docker_stack_installed; then
-      log_warn "$(lang_pick "Docker 未安装且自动安装失败，请先安装 Docker。" "Docker is not installed and automatic installation failed. Please install Docker first.")"
-      summary_add "warn" "恢复 Docker Compose" "Docker 未安装且自动安装失败"
+      log_warn "$(lang_pick "Docker 未安装且自动安装失败，请先安装 Docker。" "Docker is not installed and automatic installation failed. Please install Docker first.") ${_RESTORE_DOCKER_INSTALL_ERROR:+($(lang_pick "原因" "reason"): ${_RESTORE_DOCKER_INSTALL_ERROR})}"
+      summary_add "warn" "恢复 Docker Compose" "$(lang_pick "Docker 未安装且自动安装失败" "Docker is not installed and automatic installation failed")${_RESTORE_DOCKER_INSTALL_ERROR:+; ${_RESTORE_DOCKER_INSTALL_ERROR}}"
       return 0
     fi
   fi
 
   if ! docker compose version >/dev/null 2>&1; then
     if ! _ensure_docker_stack_installed; then
-      log_warn "$(lang_pick "Docker Compose 不可用且自动安装失败，请先安装 Docker Compose。" "Docker Compose is unavailable and automatic installation failed. Please install Docker Compose first.")"
-      summary_add "warn" "恢复 Docker Compose" "Docker Compose 不可用且自动安装失败"
+      log_warn "$(lang_pick "Docker Compose 不可用且自动安装失败，请先安装 Docker Compose。" "Docker Compose is unavailable and automatic installation failed. Please install Docker Compose first.") ${_RESTORE_DOCKER_INSTALL_ERROR:+($(lang_pick "原因" "reason"): ${_RESTORE_DOCKER_INSTALL_ERROR})}"
+      summary_add "warn" "恢复 Docker Compose" "$(lang_pick "Docker Compose 不可用且自动安装失败" "Docker Compose is unavailable and automatic installation failed")${_RESTORE_DOCKER_INSTALL_ERROR:+; ${_RESTORE_DOCKER_INSTALL_ERROR}}"
       return 0
     fi
   fi
