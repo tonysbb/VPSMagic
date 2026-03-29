@@ -107,7 +107,7 @@ show_help() {
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.6               ║
+  ║          VPS Magic Backup  v1.0.7               ║
   ║   Full-stack backup and disaster recovery       ║
   ╚══════════════════════════════════════════════════╝
 
@@ -195,7 +195,7 @@ EOF
     cat <<'EOF'
 
   ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.6               ║
+  ║          VPS Magic Backup  v1.0.7               ║
   ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
   ╚══════════════════════════════════════════════════╝
 
@@ -657,7 +657,7 @@ _json_string_array() {
   local item=""
   local first=1
   local items=()
-  eval "items=(\"\${${array_name}[@]}\")"
+  eval "items=(\"\${${array_name}[@]-}\")"
   for item in "${items[@]}"; do
     if (( first == 0 )); then
       out+=", "
