@@ -191,12 +191,132 @@ log_separator() {
   echo
 }
 
-log_banner() {
-  local text="$1"
+_banner_terminal_width() {
+  local cols="60"
+  if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    cols="$(tput cols 2>/dev/null || echo "60")"
+  fi
+  if ! [[ "${cols}" =~ ^[0-9]+$ ]]; then
+    cols="60"
+  fi
+  (( cols < 30 )) && cols=30
+  printf '%s\n' "${cols}"
+}
+
+_banner_repeat_char() {
+  local char="${1:-═}"
+  local count="${2:-0}"
+  local out=""
+  while (( count > 0 )); do
+    out+="${char}"
+    ((count--))
+  done
+  printf '%s' "${out}"
+}
+
+_banner_display_width() {
+  local text="${1:-}"
+  if command -v python3 >/dev/null 2>&1; then
+    TEXT="${text}" python3 - <<'PY'
+import os
+import unicodedata
+
+text = os.environ.get("TEXT", "")
+width = 0
+for ch in text:
+    if unicodedata.combining(ch):
+        continue
+    width += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+print(width)
+PY
+    return 0
+  fi
+  printf '%s\n' "${#text}"
+}
+
+_banner_fit_text() {
+  local text="${1:-}"
+  local inner_width="${2:-50}"
+  local max_text_width=$(( inner_width - 2 ))
+
+  if (( max_text_width < 4 )); then
+    printf '%s\n' "${text}"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    TEXT="${text}" INNER_WIDTH="${max_text_width}" python3 - <<'PY'
+import os
+import unicodedata
+
+text = os.environ.get("TEXT", "")
+max_width = int(os.environ.get("INNER_WIDTH", "48"))
+
+def width(s: str) -> int:
+    total = 0
+    for ch in s:
+        if unicodedata.combining(ch):
+            continue
+        total += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return total
+
+if width(text) <= max_width:
+    print(text)
+else:
+    out = []
+    current = 0
+    ellipsis_width = 3
+    for ch in text:
+        ch_width = 0 if unicodedata.combining(ch) else (2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1)
+        if current + ch_width + ellipsis_width > max_width:
+            break
+        out.append(ch)
+        current += ch_width
+    print("".join(out) + "...")
+PY
+  elif (( ${#text} > max_text_width )); then
+    printf '%s\n' "${text:0:$(( max_text_width - 3 ))}..."
+  else
+    printf '%s\n' "${text}"
+  fi
+}
+
+log_box_banner() {
+  local lines=("$@")
+  local inner_width="50"
+  local terminal_width=""
+  local max_inner_width=""
+  local line=""
+  local fitted=""
+  local left_pad=0
+  local right_pad=0
+
+  terminal_width="$(_banner_terminal_width)"
+  max_inner_width=$(( terminal_width - 6 ))
+  (( max_inner_width < 24 )) && max_inner_width=24
+
+  for line in "${lines[@]}"; do
+    local line_width
+    line_width="$(_banner_display_width "${line}")"
+    (( line_width + 4 > inner_width )) && inner_width=$(( line_width + 4 ))
+  done
+  (( inner_width > max_inner_width )) && inner_width="${max_inner_width}"
+
   echo
   echo -e "${_CLR_BOLD}${_CLR_CYAN}"
-  log_separator "═" 56
-  printf "  %s\n" "${text}"
-  log_separator "═" 56
+  printf '  ╔%s╗\n' "$(_banner_repeat_char "═" "${inner_width}")"
+  for line in "${lines[@]}"; do
+    fitted="$(_banner_fit_text "${line}" "${inner_width}")"
+    local fitted_width
+    fitted_width="$(_banner_display_width "${fitted}")"
+    left_pad=$(( (inner_width - fitted_width) / 2 ))
+    right_pad=$(( inner_width - fitted_width - left_pad ))
+    printf '  ║%*s%s%*s║\n' "${left_pad}" "" "${fitted}" "${right_pad}" ""
+  done
+  printf '  ╚%s╝\n' "$(_banner_repeat_char "═" "${inner_width}")"
   echo -e "${_CLR_NC}"
+}
+
+log_banner() {
+  log_box_banner "$1"
 }

@@ -254,6 +254,32 @@ get_primary_ip() {
   echo "${ip:-unknown}"
 }
 
+vpsmagic_run_with_timeout() {
+  local seconds="${1:-0}"
+  shift || true
+
+  if [[ $# -eq 0 ]]; then
+    return 1
+  fi
+
+  if ! [[ "${seconds}" =~ ^[0-9]+$ ]] || (( seconds <= 0 )); then
+    "$@"
+    return $?
+  fi
+
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --foreground "${seconds}" "$@"
+    return $?
+  fi
+
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --foreground "${seconds}" "$@"
+    return $?
+  fi
+
+  "$@"
+}
+
 # ---------- rclone 工具 ----------
 vpsmagic_rclone_bin() {
   if [[ -x /usr/local/bin/rclone ]]; then

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # VPS Magic Backup — 主入口脚本
-# 版本: v1.0.15
+# 版本: v1.0.16
 #
 # 一套面向个人/小团队 VPS 运维的全栈备份与灾难恢复工具。
 # 支持 Docker Compose / 独立容器 / Systemd / 反代 / 数据库 /
@@ -104,13 +104,8 @@ source "${SCRIPT_DIR}/modules/migrate.sh"
 # ---------- 帮助信息 ----------
 show_help() {
   if is_lang_en; then
+    log_box_banner "VPS Magic Backup v${VPSMAGIC_VERSION}" "Full-stack backup and disaster recovery"
     cat <<'EOF'
-
-  ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.15              ║
-  ║   Full-stack backup and disaster recovery       ║
-  ╚══════════════════════════════════════════════════╝
-
   Usage:
     vpsmagic <command> [options]
 
@@ -192,13 +187,8 @@ show_help() {
 
 EOF
   else
+    log_box_banner "VPS Magic Backup v${VPSMAGIC_VERSION}" "全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑"
     cat <<'EOF'
-
-  ╔══════════════════════════════════════════════════╗
-  ║          VPS Magic Backup  v1.0.15              ║
-  ║   全栈备份与灾难恢复 · 让 VPS 迁移如丝般顺滑     ║
-  ╚══════════════════════════════════════════════════╝
-
   用法:
     vpsmagic <命令> [选项]
 
@@ -290,12 +280,15 @@ show_version() {
 _status_remote_backup_count() {
   local remote_target="$1"
   local listing=""
+  local rclone_bin=""
+  local query_timeout="${VPSMAGIC_STATUS_REMOTE_TIMEOUT:-6}"
 
-  if ! command -v rclone >/dev/null 2>&1; then
+  rclone_bin="$(vpsmagic_rclone_bin 2>/dev/null || true)"
+  if [[ -z "${rclone_bin}" ]]; then
     return 1
   fi
 
-  if ! listing="$(rclone lsf "${remote_target}/" 2>/dev/null)"; then
+  if ! listing="$(vpsmagic_run_with_timeout "${query_timeout}" "${rclone_bin}" lsf "${remote_target}/" 2>/dev/null)"; then
     return 1
   fi
 
@@ -501,6 +494,7 @@ EOF
     fi
     if [[ ${#backup_targets[@]} -gt 0 ]]; then
       echo -e "${_CLR_BOLD}$(lang_pick "远端备份" "Remote backups"):${_CLR_NC}"
+      echo "  $(lang_pick "每个远端查询超时" "Per-target timeout"): ${VPSMAGIC_STATUS_REMOTE_TIMEOUT:-6}s"
       local remote_target=""
       for remote_target in "${backup_targets[@]}"; do
         local remote_count
@@ -700,6 +694,7 @@ _json_string_array() {
 run_doctor() {
   if [[ "${CLI_OUTPUT_FORMAT:-text}" != "json" ]]; then
     log_banner "$(lang_pick "VPS Magic Backup — 接入识别" "VPS Magic Backup — Adoption Doctor")"
+    log_info "$(lang_pick "正在扫描本机业务形态..." "Scanning local workloads...")"
   fi
 
   local compose_count standalone_count systemd_count user_home_count remote_count
@@ -734,6 +729,9 @@ run_doctor() {
   profile="$(_doctor_detect_profile "${compose_count}" "${standalone_count}" "${systemd_count}" "${has_db}")"
 
   remote_count=0
+  if [[ "${CLI_OUTPUT_FORMAT:-text}" != "json" ]]; then
+    log_info "$(lang_pick "正在评估依赖与远端条件..." "Evaluating dependencies and remote readiness...")"
+  fi
   command -v docker >/dev/null 2>&1 && has_docker=1
   _doctor_has_docker_compose && has_docker_compose=1
   [[ -f /root/.oci/config ]] && has_oci_config=1
