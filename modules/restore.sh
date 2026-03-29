@@ -913,14 +913,14 @@ _preflight_restore_remote_target() {
 
   if ! _rclone_remote_exists "${remote_name}" "${rclone_opts[@]}"; then
     local conf_path="${RCLONE_CONF:-${HOME}/.config/rclone/rclone.conf}"
-    printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})。$(lang_pick "请先复制源机的 rclone.conf，或在目标机运行 rclone config，无法满足时改用 restore --local。" "Copy the source host rclone.conf first, or run rclone config on the target host. If that is not possible, use restore --local instead.")"
+    printf -v "${err_var}" '%s' "$(lang_pick "未检测到 rclone remote 配置" "rclone remote is not configured"): ${remote_name} ($(lang_pick "配置文件" "config"): ${conf_path})$(lang_pick "。请先复制源机的 rclone.conf，或在目标机运行 rclone config，无法满足时改用 restore --local。" ". Copy the source host rclone.conf first, or run rclone config on the target host. If that is not possible, use restore --local instead.")"
     return 1
   fi
 
   if _remote_uses_oci_credentials "${remote_name}" "${rclone_opts[@]}"; then
     local oci_conf="${OCI_CLI_CONFIG_FILE:-${HOME}/.oci/config}"
     if [[ ! -f "${oci_conf}" ]]; then
-      printf -v "${err_var}" '%s' "$(lang_pick "OCI 凭据缺失" "OCI credentials are missing"): ${oci_conf}。$(lang_pick "请先复制源机的 /root/.oci/config 和对应密钥，或改用其他远端/restore --local。" "Copy /root/.oci/config and its key material from the source host first, or use another remote / restore --local.")"
+      printf -v "${err_var}" '%s' "$(lang_pick "OCI 凭据缺失" "OCI credentials are missing"): ${oci_conf}$(lang_pick "。请先复制源机的 /root/.oci/config 和对应密钥，或改用其他远端/restore --local。" ". Copy /root/.oci/config and its key material from the source host first, or use another remote / restore --local.")"
       return 1
     fi
   fi
