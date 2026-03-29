@@ -18,12 +18,19 @@ Common reasons:
 - missing `rclone.conf`
 - missing `/root/.oci/config` for OCI-backed flows
 - target machine cannot reach the remote backend
+- Debian default repositories only provide `docker.io` but not `docker-compose-plugin`
 
 Recommended actions:
 
 1. read the `remote restore preflight` output first
 2. if credentials cannot be prepared in time, switch to `restore --local`
 3. do not confuse “remote access is unavailable” with “the backup does not exist”
+
+If the issue is `Docker / Compose`:
+
+- when the target host does not have Docker, the restore flow tries to install Docker / Compose automatically first
+- on Debian hosts, if the default repositories only provide `docker.io` without `docker-compose-plugin`, the tool now also tries Docker's official repository
+- if that still fails, the restore summary includes the installation reason so you can handle it manually
 
 ## SHA256 verification failures
 

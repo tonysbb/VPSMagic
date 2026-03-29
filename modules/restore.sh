@@ -161,6 +161,39 @@ _apt_install_noninteractive() {
     "$@" >/dev/null 2>&1
 }
 
+_install_docker_via_official_repo() {
+  local keyring_dir="/etc/apt/keyrings"
+  local keyring_file="${keyring_dir}/docker.gpg"
+  local list_file="/etc/apt/sources.list.d/docker.list"
+  local arch=""
+  local codename=""
+
+  command -v apt-get >/dev/null 2>&1 || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+  command -v gpg >/dev/null 2>&1 || return 1
+  command -v dpkg >/dev/null 2>&1 || return 1
+
+  arch="$(dpkg --print-architecture 2>/dev/null || true)"
+  codename="$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")"
+  [[ -n "${codename}" ]] || codename="$(lsb_release -cs 2>/dev/null || true)"
+  [[ -n "${arch}" && -n "${codename}" ]] || return 1
+
+  _ensure_restore_apt_index
+  _apt_install_noninteractive ca-certificates curl gnupg lsb-release apt-transport-https || return 1
+
+  install -m 0755 -d "${keyring_dir}" >/dev/null 2>&1 || return 1
+  curl -fsSL https://download.docker.com/linux/debian/gpg | \
+    gpg --dearmor -o "${keyring_file}" >/dev/null 2>&1 || return 1
+  chmod 0644 "${keyring_file}" >/dev/null 2>&1 || true
+
+  printf 'deb [arch=%s signed-by=%s] https://download.docker.com/linux/debian %s stable\n' \
+    "${arch}" "${keyring_file}" "${codename}" > "${list_file}" || return 1
+
+  _RESTORE_APT_UPDATED=0
+  _ensure_restore_apt_index
+  _apt_install_noninteractive docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || return 1
+}
+
 _install_caddy_via_official_repo() {
   local list_file="/etc/apt/sources.list.d/caddy-stable.list"
   local keyring_dir="/usr/share/keyrings"
@@ -244,11 +277,17 @@ _ensure_docker_stack_installed() {
           return 1
         fi
       elif _apt_package_available "docker.io"; then
-        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源只提供 docker.io，未提供 docker-compose-plugin。请添加 Docker 官方仓库或手动安装 Docker Compose。" "APT sources provide docker.io but not docker-compose-plugin. Add Docker's official repository or install Docker Compose manually.")"
-        return 1
+        log_info "  $(lang_pick "默认软件源只提供 docker.io，尝试添加 Docker 官方仓库" "Default package sources only provide docker.io; trying Docker's official repository")"
+        if ! _install_docker_via_official_repo; then
+          _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源只提供 docker.io，且切换到 Docker 官方仓库后仍无法安装 docker-compose-plugin。请检查网络或手动安装 Docker Compose。" "APT sources only provide docker.io, and docker-compose-plugin still could not be installed after switching to Docker's official repository. Check network access or install Docker Compose manually.")"
+          return 1
+        fi
       else
-        _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源未提供可用的 Docker / Docker Compose 软件包" "APT sources do not provide usable Docker / Docker Compose packages")"
-        return 1
+        log_info "  $(lang_pick "默认软件源未提供可用的 Docker 软件包，尝试添加 Docker 官方仓库" "Default package sources do not provide usable Docker packages; trying Docker's official repository")"
+        if ! _install_docker_via_official_repo; then
+          _RESTORE_DOCKER_INSTALL_ERROR="$(lang_pick "APT 源未提供可用的 Docker / Docker Compose 软件包，且添加 Docker 官方仓库后安装仍失败" "APT sources do not provide usable Docker / Docker Compose packages, and installation still failed after adding Docker's official repository")"
+          return 1
+        fi
       fi
       ;;
     apk)
@@ -283,6 +322,22 @@ _ensure_docker_stack_installed() {
     _RESTORE_DOCKER_INSTALL_ERROR="${_RESTORE_DOCKER_INSTALL_ERROR:-$(lang_pick "Docker 安装后仍不可用" "Docker is still unavailable after installation")}"
   fi
   return 1
+}
+
+_manifest_display_key() {
+  local key="$1"
+  case "${key}" in
+    backup_name) printf '%s\n' "$(lang_pick "备份名称" "backup_name")" ;;
+    hostname) printf '%s\n' "$(lang_pick "主机名" "hostname")" ;;
+    timestamp) printf '%s\n' "$(lang_pick "时间戳(UTC)" "timestamp")" ;;
+    timestamp_local) printf '%s\n' "$(lang_pick "本地时间戳" "timestamp_local")" ;;
+    kernel) printf '%s\n' "$(lang_pick "内核" "kernel")" ;;
+    os) printf '%s\n' "$(lang_pick "系统" "os")" ;;
+    vpsmagic_version) printf '%s\n' "$(lang_pick "VPS Magic 版本" "vpsmagic_version")" ;;
+    ip_addresses) printf '%s\n' "$(lang_pick "IP 地址" "ip_addresses")" ;;
+    docker_version) printf '%s\n' "$(lang_pick "Docker 版本" "docker_version")" ;;
+    *) printf '%s\n' "${key}" ;;
+  esac
 }
 
 _ensure_proxy_service_package() {
@@ -1581,7 +1636,7 @@ run_restore() {
     echo
     log_info "$(lang_pick "备份信息" "Backup info"):"
     while IFS='=' read -r key value; do
-      echo "  ${key}: ${value}"
+      echo "  $(_manifest_display_key "${key}"): ${value}"
     done < "${backup_data_dir}/manifest.txt"
     echo
   fi
@@ -2490,7 +2545,7 @@ _restore_from_local() {
     echo
     log_info "$(lang_pick "备份信息" "Backup info"):"
     while IFS='=' read -r key value; do
-      echo "  ${key}: ${value}"
+      echo "  $(_manifest_display_key "${key}"): ${value}"
     done < "${backup_data_dir}/manifest.txt"
     echo
   fi
