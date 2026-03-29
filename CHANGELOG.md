@@ -2,6 +2,23 @@
 
 All commit summaries recorded by deploy.sh.
 
+## [v1.0.15] - 2026-03-30
+
+```text
+fix: detect backend support from remote config
+fix: prefer /usr/local rclone for restore preflight
+fix: force-install official rclone release when backend is missing
+fix: tighten remote preflight and init prompts
+feat: add doctor json output
+feat: add status json output
+feat: add doctor pre-restore risk assessment
+```
+
+See also:
+
+- 中文发布说明: [docs/zh/发布说明-v1.0.15.md](docs/zh/发布说明-v1.0.15.md)
+- English release notes: [docs/en/release-notes-v1.0.15.md](docs/en/release-notes-v1.0.15.md)
+
 ## [2026-03-29 01:02:32]
 
 ```text
