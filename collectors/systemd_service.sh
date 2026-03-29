@@ -66,6 +66,7 @@ collect_systemd_services() {
 
   safe_mkdir "${target_dir}"
   local count=0
+  local en_service_label="services"
 
   for svc in "${services[@]}"; do
     local svc_name="${svc%.service}"
@@ -206,6 +207,7 @@ collect_systemd_services() {
     ((count+=1))
   done
 
-  log_success "$(lang_pick "Systemd 服务: 已备份 ${count} 个" "Systemd services: backed up ${count}")"
+  (( count == 1 )) && en_service_label="service"
+  log_success "$(lang_pick "Systemd 服务: 已备份 ${count} 个" "Systemd services: backed up ${count} ${en_service_label}")"
   summary_add "ok" "Systemd 服务" "${count} 个服务"
 }

@@ -133,6 +133,7 @@ summary_module_name() {
 
 summary_detail_text() {
   local detail="${1:-}"
+  local count=""
   if ! is_lang_en; then
     printf '%s' "${detail}"
     return 0
@@ -145,6 +146,7 @@ summary_detail_text() {
     "无独立容器") printf '%s' "no standalone containers" ;;
     "未配置") printf '%s' "not configured" ;;
     "未找到有效用户") printf '%s' "no valid users found" ;;
+    "未发现有效路径") printf '%s' "no valid paths found" ;;
     "已恢复") printf '%s' "restored" ;;
     "已处理") printf '%s' "processed" ;;
     "已备份") printf '%s' "backed up" ;;
@@ -157,25 +159,77 @@ summary_detail_text() {
     "目标模式为 local") printf '%s' "destination mode is local" ;;
     *)
       if [[ "${detail}" =~ ^([0-9]+)[[:space:]]*项$ ]]; then
-        printf '%s items' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 item'
+        else
+          printf '%s items' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个数据库$ ]]; then
-        printf '%s databases' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 database'
+        else
+          printf '%s databases' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个容器需手动重建$ ]]; then
-        printf '%s containers require manual recreation' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 container requires manual recreation'
+        else
+          printf '%s containers require manual recreation' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个项目$ ]]; then
-        printf '%s projects' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 project'
+        else
+          printf '%s projects' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个用户$ ]]; then
-        printf '%s users' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 user'
+        else
+          printf '%s users' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务$ ]]; then
-        printf '%s services' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 service'
+        else
+          printf '%s services' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个容器$ ]]; then
-        printf '%s containers' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 container'
+        else
+          printf '%s containers' "${count}"
+        fi
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已恢复，([0-9]+)[[:space:]]*个待切换后启动$ ]]; then
-        printf '%s services restored, %s pending manual start after cutover' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        local restored_count="${BASH_REMATCH[1]}"
+        local deferred_count="${BASH_REMATCH[2]}"
+        printf '%s %s restored, %s %s pending manual start after cutover' \
+          "${restored_count}" \
+          "$([[ "${restored_count}" == "1" ]] && printf 'service' || printf 'services')" \
+          "${deferred_count}" \
+          "$([[ "${deferred_count}" == "1" ]] && printf 'service is' || printf 'services are')"
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已处理，([0-9]+)[[:space:]]*个需手动检查$ ]]; then
-        printf '%s services processed, %s require manual review' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+        local processed_count="${BASH_REMATCH[1]}"
+        local review_count="${BASH_REMATCH[2]}"
+        printf '%s %s processed, %s %s require manual review' \
+          "${processed_count}" \
+          "$([[ "${processed_count}" == "1" ]] && printf 'service' || printf 'services')" \
+          "${review_count}" \
+          "$([[ "${review_count}" == "1" ]] && printf 'service may' || printf 'services may')"
       elif [[ "${detail}" =~ ^([0-9]+)[[:space:]]*个服务已恢复$ ]]; then
-        printf '%s services restored' "${BASH_REMATCH[1]}"
+        count="${BASH_REMATCH[1]}"
+        if [[ "${count}" == "1" ]]; then
+          printf '1 service restored'
+        else
+          printf '%s services restored' "${count}"
+        fi
       else
         printf '%s' "${detail}"
       fi

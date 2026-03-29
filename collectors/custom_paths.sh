@@ -9,9 +9,11 @@ _COLLECTOR_CUSTOM_LOADED=1
 collect_custom_paths() {
   local staging_dir="$1"
   local target_dir="${staging_dir}/custom_paths"
+  local en_item_label="items"
 
   if [[ -z "${EXTRA_PATHS:-}" ]]; then
     log_debug "$(lang_pick "未配置自定义备份路径 (EXTRA_PATHS)。" "No custom backup paths configured (EXTRA_PATHS).")"
+    summary_add "skip" "自定义路径" "未配置"
     return 0
   fi
 
@@ -21,6 +23,7 @@ collect_custom_paths() {
   parse_list "${EXTRA_PATHS}" paths
 
   if [[ ${#paths[@]} -eq 0 ]]; then
+    summary_add "skip" "自定义路径" "未配置"
     return 0
   fi
 
@@ -58,7 +61,10 @@ collect_custom_paths() {
   done
 
   if (( count > 0 )); then
-    log_success "$(lang_pick "自定义路径" "Custom paths"): $(lang_pick "已备份" "backed up") ${count} $(lang_pick "项" "items")"
-    summary_add "ok" "自定义路径" "${count} $(lang_pick "项" "items")"
+    (( count == 1 )) && en_item_label="item"
+    log_success "$(lang_pick "自定义路径" "Custom paths"): $(lang_pick "已备份" "backed up") ${count} $(lang_pick "项" "${en_item_label}")"
+    summary_add "ok" "自定义路径" "${count} 项"
+  else
+    summary_add "skip" "自定义路径" "$(lang_pick "未发现有效路径" "no valid paths found")"
   fi
 }

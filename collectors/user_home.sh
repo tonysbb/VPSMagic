@@ -23,6 +23,7 @@ collect_user_home() {
 
   safe_mkdir "${target_dir}"
   local count=0
+  local en_user_label="users"
 
   for username in "${users[@]}"; do
     local home_dir=""
@@ -100,7 +101,8 @@ collect_user_home() {
   done
 
   if (( count > 0 )); then
-    log_success "$(lang_pick "用户目录: 已备份 ${count} 个用户" "User homes: backed up ${count} users")"
+    (( count == 1 )) && en_user_label="user"
+    log_success "$(lang_pick "用户目录: 已备份 ${count} 个用户" "User homes: backed up ${count} ${en_user_label}")"
     summary_add "ok" "用户目录" "${count} 个用户"
   else
     summary_add "skip" "用户目录" "未找到有效用户"
