@@ -74,7 +74,7 @@ bash vpsmagic.sh status --format json
 | 模块 | 当前等级 | 说明 |
 |------|----------|------|
 | Docker Compose | A | 可恢复并自动拉起，已补健康检查 |
-| Systemd 服务 | A / B | 常见服务可恢复；单实例服务默认恢复但不自动启动 |
+| Systemd 服务 | A / B | 常见服务可恢复，并保留源机 enable / running 状态；单实例服务默认恢复但不自动启动 |
 | 反向代理 | A | 支持 Caddy / Nginx / Apache / Traefik 配置恢复 |
 | 数据库 | B | 以逻辑导出和文件恢复为主，不承诺业务一致性自动验证 |
 | Crontab / 防火墙 | A | 可恢复并纳入快照与摘要 |

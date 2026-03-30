@@ -65,6 +65,13 @@ bash vpsmagic.sh restore --config /opt/vpsmagic/config.env
 
 Use this only after the target machine has the required remote credentials and access.
 
+For common `Systemd` services, restore now preserves the source machine's:
+
+- `systemctl enable` state
+- current `running` state
+
+Single-instance services, or services explicitly marked for manual cutover, still keep the existing "restored but not started automatically" protection.
+
 ## Cross-host restore
 
 ```bash

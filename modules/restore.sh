@@ -2193,19 +2193,24 @@ _restore_systemd() {
     # 读取状态
     if [[ -f "${svc_dir}/status.env" ]]; then
       local enabled_state=""
+      local active_state=""
       local manual_start=0
       enabled_state="$(_read_env_value "${svc_dir}/status.env" "ENABLED")"
+      active_state="$(_read_env_value "${svc_dir}/status.env" "ACTIVE")"
       if _systemd_service_requires_manual_start "${svc_name}" "${svc_dir}"; then
         manual_start=1
         _mark_restore_systemd_manual "${svc_name}"
       fi
-      # 恢复启用状态
+
+      # 分别恢复开机自启动状态和运行状态，避免把源机的 inactive 服务误启动。
       systemctl daemon-reload 2>/dev/null || true
+      if [[ "${enabled_state}" == "enabled" ]]; then
+        systemctl enable "${svc_name}" 2>/dev/null || true
+      fi
       if (( manual_start == 1 )); then
         log_info "    $(lang_pick "单实例服务，已恢复但不自动启动" "Single-instance service restored but not started automatically"): ${svc_name}"
         ((deferred_count+=1))
-      elif [[ "${enabled_state}" == "enabled" ]]; then
-        systemctl enable "${svc_name}" 2>/dev/null || true
+      elif [[ "${active_state}" == "active" ]]; then
         systemctl start "${svc_name}" 2>/dev/null || {
           log_warn "    $(lang_pick "服务启动失败" "Service failed to start"): ${svc_name}"
           svc_warn=1
