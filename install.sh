@@ -524,25 +524,23 @@ EOF
   print_install_banner "${completion_title}"
   echo
   echo "  $(lang_pick_install "快速开始" "Quick start"):"
-  echo "    1. $(lang_pick_install "配置 rclone 远端" "Configure rclone remote"):  rclone config"
-  echo "       $(lang_pick_install "Oracle Object Storage 可在 rclone 中选择 S3 兼容后端进行配置" "Oracle Object Storage can be configured in rclone as an S3-compatible backend")"
-  echo "    2. $(lang_pick_install "编辑配置文件" "Edit config file"):      vim ${INSTALL_DIR}/config.env"
-  echo "    3. $(lang_pick_install "测试备份 (模拟)" "Test backup (dry-run)"):   vpsmagic backup --dry-run --dest local"
-  echo "    4. $(lang_pick_install "执行远端备份" "Run remote backup"):      vpsmagic backup --dest remote"
-  echo "    5. $(lang_pick_install "安装定时备份" "Install schedule"):      vpsmagic schedule install"
-  echo "    6. $(lang_pick_install "迁移/预同步提速" "Migration / pre-sync acceleration"):   rsync --version && vpsmagic migrate root@new-vps"
   echo
-  echo "  $(lang_pick_install "恢复命令 (在新 VPS 上)" "Restore command (on the new VPS)"):"
-  echo "    vpsmagic restore"
-  echo "    $(lang_pick_install "如果源机和目标机都能访问同一个备份存储，可直接执行远端恢复。" "If both the source VPS and destination VPS can access the same backup storage, you can restore directly from remote.")"
-  echo "    $(lang_pick_install "如果目标机无法访问源机使用的 remote，请先把备份文件手动传到目标机，再执行 vpsmagic restore --local <file>。" "If the destination VPS cannot access the remote used by the source VPS, copy the backup file to the destination first and run vpsmagic restore --local <file>.")"
+  echo "    1. $(lang_pick_install "环境诊断" "Environment diagnosis"):        vpsmagic doctor"
+  echo "    2. $(lang_pick_install "执行首次备份" "Run first backup"):          vpsmagic backup"
+  echo "    3. $(lang_pick_install "校验备份" "Verify backup"):              sha256sum -c ${INSTALL_DIR}/backups/archives/*.sha256"
+  echo "    4. $(lang_pick_install "恢复演练" "Restore rehearsal"):           vpsmagic restore --local <file>"
   echo
-  echo "  $(lang_pick_install "Oracle Object Storage 提示" "Oracle Object Storage notes"):"
-  echo "    - $(lang_pick_install "建议直接使用 rclone remote 访问对象存储，不要默认 mount 后再备份" "Use an rclone remote directly instead of mounting object storage by default")"
-  echo "    - $(lang_pick_install "配好 remote 后，将其写入 BACKUP_TARGETS 或执行 vpsmagic backup --remote <remote:path>" "After configuring the remote, put it into BACKUP_TARGETS or run vpsmagic backup --remote <remote:path>")"
+  echo "  $(lang_pick_install "配置云端备份（推荐）" "Configure cloud backup (recommended)"):"
   echo
-  echo "  $(lang_pick_install "在线迁移 (从源 VPS 执行)" "Online migration (run on the source VPS)"):"
-  echo "    vpsmagic migrate root@new-vps"
+  echo "    5. $(lang_pick_install "配置远端存储" "Configure remote storage"):      rclone config"
+  echo "    6. $(lang_pick_install "重新初始化（选本地+云端）" "Re-init (choose local + cloud)"): vpsmagic init"
+  echo "    7. $(lang_pick_install "安装定时备份" "Install scheduled backup"):     vpsmagic schedule install"
+  echo
+  echo "  $(lang_pick_install "在新 VPS 上恢复" "Restore on a new VPS"):"
+  echo
+  echo "    $(lang_pick_install "远端恢复" "Remote restore"):  vpsmagic restore"
+  echo "    $(lang_pick_install "本地恢复" "Local restore"):   vpsmagic restore --local <file>"
+  echo "    $(lang_pick_install "在线迁移" "Online migration"): vpsmagic migrate root@new-vps"
   echo
   echo "  $(lang_pick_install "更多帮助" "More help"):  vpsmagic help"
   echo

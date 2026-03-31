@@ -1,157 +1,46 @@
 # English Docs Overview
 
-This directory is for users who are new to the tool and do not necessarily share the same environment as our own test VPSes.
+Find the documentation you need by task.
 
-The important point is:
+## Getting Started
 
-- your server does **not** need to look like `VPSA`
-- but you should not assume every unfamiliar server can be restored the same way
+| Document | For whom |
+|----------|----------|
+| [Quick Start](./quickstart.md) | First-time users — complete your first backup and restore from scratch |
+| [Configuration](./configuration.md) | Setting up cloud remotes, module toggles, dual-remote mode |
 
-Start by classifying the machine first:
+## Backup & Recovery
 
-```bash
-bash vpsmagic.sh doctor
-```
+| Document | Description |
+|----------|-------------|
+| [Backup](./backup.md) | Backup scope, output files, retention policy |
+| [Restore](./restore.md) | Local / remote / cross-host restore workflows |
+| [Migration](./migrate.md) | Online migration to a new VPS — prerequisites and steps |
 
-The `doctor` command helps answer:
+## Operations
 
-- what kind of workload this VPS looks like
-- which deployment shapes were detected
-- whether remote prerequisites are ready
-- which parts are closer to A / B / C recovery grades
-- which adoption path is safer to start with
-- whether anything is currently blocking a real restore
+| Document | Description |
+|----------|-------------|
+| [Status](./status.md) | `status` and `doctor` command output fields |
+| [Scheduled Backups](./schedule.md) | Cron setup, Telegram notifications, log viewing |
+| [Troubleshooting](./troubleshooting.md) | Layered troubleshooting for common issues |
 
-If you want to feed the result into automation, you can also use:
+## Reference
 
-```bash
-bash vpsmagic.sh doctor --format json
-bash vpsmagic.sh status --format json
-```
+| Document | Description |
+|----------|-------------|
+| [Capability Matrix](./capability-matrix.md) | A / B / C recovery grades per module |
+| [Workload Profiles](./workload-profiles-and-suitability.md) | Choose your recovery path by VPS workload type |
+| [Disclaimer](./disclaimer.md) | Engineering boundaries and usage assumptions |
+| [Real Empty-Host Restore Acceptance](./real-empty-host-remote-restore-acceptance.md) | Validated empty-host restore chain |
+| [Final Acceptance Summary](./final-acceptance-summary.md) | Current version maturity summary |
 
-Use them for slightly different purposes:
+## Suggested Reading Order
 
-- `doctor --format json`: pre-restore classification and risk assessment
-- `status --format json`: current machine, configuration, and backup overview
+1. [Quick Start](./quickstart.md) — Complete your first backup and restore
+2. [Configuration](./configuration.md) — Set up cloud remotes
+3. [Restore](./restore.md) — Master different restore methods
+4. [Scheduled Backups](./schedule.md) — Set up automated backups
+5. [Troubleshooting](./troubleshooting.md) — When things go wrong
 
-Field reference:
-
-- [Status](./status.md)
-
-## Recommended first path
-
-For a brand-new user, the safest order is:
-
-1. Run `doctor`
-2. Start with local-only initialization
-3. Run one local backup
-4. Rehearse one local restore
-5. Add remote storage later
-6. Use cross-host restore or migration only after rehearsal
-
-## If you have no rclone and no cloud storage yet
-
-That is fine.  
-You can still start using the tool in local-only mode:
-
-```bash
-bash vpsmagic.sh init
-```
-
-Then choose:
-
-1. `Local backups only`
-
-This gives you a minimal usable path before you deal with remote storage, OCI, R2, or `rclone`.
-
-## Document groups
-
-### 1. First-time onboarding
-
-1. [New User, New Environment Guide](./new-user-new-environment-guide.md)
-2. [Quick Start](./quickstart.md)
-3. [Configuration](./configuration.md)
-
-### 2. Runtime and recovery
-
-1. [Backup](./backup.md)
-2. [Status](./status.md)
-3. [Restore](./restore.md)
-4. [Migration](./migrate.md)
-5. [Scheduled Backups](./schedule.md)
-6. [Troubleshooting](./troubleshooting.md)
-
-### 3. Boundaries and validation
-
-1. [Disclaimer](./disclaimer.md)
-2. [Capability Matrix](./capability-matrix.md)
-3. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
-4. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
-5. [Final Acceptance Summary](./final-acceptance-summary.md)
-
-## Recovery mindset
-
-This project is designed to restore a VPS to a **runnable and maintainable** state, not to promise full system replay for every workload shape.
-
-In practice:
-
-- backup support is wider than restore support
-- standard Docker Compose / reverse proxy / common systemd cases are the strongest path
-- mixed Docker setups, external credentials, and business-side rollback still need more caution
-
-For remote restore, treat these as intentional security gates rather than optional conveniences:
-
-- `rclone.conf`
-- `OCI` credentials when your primary remote depends on them
-
-## Current entry points
-
-- Root overview: [README.md](../../README.md)
-- Chinese user docs: [docs/zh/README.md](../zh/README.md)
-- Workload profiles: [docs/en/workload-profiles-and-suitability.md](./workload-profiles-and-suitability.md)
-
-More English task-by-task documentation can be added under `docs/en/` as the user guides are translated.
-
-## Start here
-
-- If you are new and need help choosing the right path first:
-  - [New User, New Environment Guide](./new-user-new-environment-guide.md)
-- If you have no remote storage and just want one working backup first:
-  - [Quick Start](./quickstart.md)
-- If you want to understand the project boundaries first:
-  - [Disclaimer](./disclaimer.md)
-- If you want to configure local-only, single-remote, or dual-remote mode:
-  - [Configuration](./configuration.md)
-- If you want to understand standard backup behavior:
-  - [Backup](./backup.md)
-- If you want to inspect the current machine and backup state:
-  - [Status](./status.md)
-- If you are preparing to restore on a target machine:
-  - [Restore](./restore.md)
-- If you want the workload suitability view first:
-  - [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
-- If you want one validated example of a real empty target host restore:
-  - [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
-- If you plan to use migration or scheduled backups:
-  - [Migration](./migrate.md)
-  - [Scheduled Backups](./schedule.md)
-- If you are already in a failure path:
-  - [Troubleshooting](./troubleshooting.md)
-- If you want the current recovery-grade summary:
-  - [Capability Matrix](./capability-matrix.md)
-- If you want the high-level acceptance status of the current version:
-  - [Final Acceptance Summary](./final-acceptance-summary.md)
-
-## Suggested reading order
-
-1. [New User, New Environment Guide](./new-user-new-environment-guide.md)
-2. [Disclaimer](./disclaimer.md)
-3. [Quick Start](./quickstart.md)
-4. [Configuration](./configuration.md)
-5. [Backup](./backup.md)
-6. [Status](./status.md)
-7. [Restore](./restore.md)
-8. [Workload Profiles and Suitability](./workload-profiles-and-suitability.md)
-9. [Real Empty-Host Remote Restore Acceptance](./real-empty-host-remote-restore-acceptance.md)
-10. [Capability Matrix](./capability-matrix.md)
-11. [Final Acceptance Summary](./final-acceptance-summary.md)
+Use `vpsmagic doctor` to quickly understand your VPS workload profile and get restore recommendations.
